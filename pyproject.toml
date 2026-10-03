@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exerepair"
+dynamic = ["version"]
+description = "Offline recovery workbench for visual-novel DRM wrappers"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "ExeRepair contributors" }]
+dependencies = ["tkinterdnd2"]
+
+[project.optional-dependencies]
+recovery = ["frida", "psutil", "numpy", "numba"]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+exerepair = "exerepair.cli:main"
+exerepair-ui = "exerepair.ui:main"
+
+[tool.setuptools.packages.find]
+include = ["exerepair*"]
+
+[tool.setuptools.package-data]
+"exerepair.adapters" = ["*.cl", "*.js", "native/*.zip", "native/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
