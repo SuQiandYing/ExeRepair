@@ -188,7 +188,7 @@ def test_payload_validation_fails_closed(case):
 
 
 def test_unknown_build_does_not_get_guessed_offsets():
-    with pytest.raises(RecoveryError, match="其他版本"):
+    with pytest.raises(RecoveryError, match="未能从样本结构建立通用"):
         identify_profile(make_pe(32))
 
 

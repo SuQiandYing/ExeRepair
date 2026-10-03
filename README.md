@@ -1,7 +1,5 @@
 # ExeRepair
 
-借用了YeLikesss大佬的项目https://github.com/YeLikesss/SdWrapless
-
 ExeRepair 是用于本地 EXE 容器检查、内容提取、载荷恢复和副本修复的工具。
 提供命令行、桌面界面与 Python API。要求 Python **3.10 或更高版本**。
 
@@ -57,6 +55,12 @@ python -m pip install -e ".[dev]"
 ```powershell
 # 只读检查
 python -m exerepair --inspect TARGET.exe
+
+# 以 EXE 所在目录为工作目录启动，不修改输入文件
+python -m exerepair --run TARGET.exe
+
+# 启动时传入参数；可重复指定 --launch-arg
+python -m exerepair --run TARGET.exe --launch-arg /windowed
 
 # 自动识别并处理；默认生成 TARGET_crack.exe
 python -m exerepair TARGET.exe

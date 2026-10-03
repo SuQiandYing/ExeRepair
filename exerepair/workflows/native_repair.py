@@ -17,6 +17,7 @@ def native_trampoline(profile: NativeCallProfile, image_base: int, helper_rva: i
     """Preserve guest GPRs/EFLAGS, guard ten bytes, replace only CALL EAX."""
     guard = profile.guard_bytes
     if (len(guard) != 10 or guard[5:7] != b"\xff\xd0" or
+            profile.requires_runtime_discovery or
             profile.call_rva != profile.guard_rva + 5):
         raise RecoveryError("原生调用保护字节或调用位置无效")
     code = bytearray(b"\x9c\x60\xba" + struct.pack("<I", image_base+profile.guard_rva))
@@ -190,7 +191,7 @@ def build_native_repair(
     report = {
         "profile":profile.name,"strategy":"guarded-native-call",
         "baseline_sha256":profile.baseline_sha256,"modified_sha256":sha256(modified),
-        "changed_symbol":f"ExHIBIT.exe RVA {profile.call_rva:#x} CALL executeAPI -> NOP NOP",
+        "changed_symbol":f"main module RVA {profile.call_rva:#x} native CALL -> NOP NOP",
         "guard_rva":hex(profile.guard_rva),"guard_bytes":profile.guard_bytes.hex(),
         "dispatch_rva":hex(profile.dispatch_rva),"retired_relocation":hex(profile.relocation_offset),
         "helper_rva":hex(helper_rva),"helper_size":len(helper),

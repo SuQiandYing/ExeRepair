@@ -1,9 +1,10 @@
-"""Verified build identities, never guessed offsets for arbitrary Enigma EXEs."""
+"""Fast-path identities plus structural fallback for supported Enigma families."""
 from __future__ import annotations
 
 import hashlib
 
 from ..domain.recovery import NativeCallProfile, PayloadSpec, RecoveryError, RepairProfile
+from .native_discovery import discover_native_static
 
 
 TAYUTAMA_ZERO = RepairProfile(
@@ -46,7 +47,22 @@ EXHIBIT_DMM = NativeCallProfile(
     bootstrap_size_offsets=(121, 196),
     bootstrap_source_offsets=(126, 201),
 )
-PROFILES = (TAYUTAMA_ZERO, EXHIBIT_DMM)
+EXHIBIT_DMM_TP02 = NativeCallProfile(
+    name="exhibit-hoshizora-tp02-dmm-enigma-1.31",
+    baseline_sha256="fd3d7901556afc9d82afa23103a05ab2e81050dabeae2e2ed164b345d642c339",
+    baseline_size=6483968,
+    engine_sha256="756b5c0a14107f47b298f5ac6a5ef526dc30da682cf082cd671dade0ed9e3381",
+    engine_base_delta=0x113000,
+    dispatch_rva=0x133AFE,
+    dispatch_global_rva=0x1BA8A4,
+    relocation_offset=0x686C08,
+    guard_rva=0x18486,
+    call_rva=0x1848B,
+    guard_bytes=bytes.fromhex("68046a4d00ffd083c404"),
+    bootstrap_size_offsets=(121, 198),
+    bootstrap_source_offsets=(126, 203),
+)
+PROFILES = (TAYUTAMA_ZERO, EXHIBIT_DMM, EXHIBIT_DMM_TP02)
 
 
 def identify_profile(data: bytes) -> RepairProfile | NativeCallProfile:
@@ -54,7 +70,9 @@ def identify_profile(data: bytes) -> RepairProfile | NativeCallProfile:
     for profile in PROFILES:
         if digest == profile.baseline_sha256 and len(data) == profile.baseline_size:
             return profile
-    raise RecoveryError(
-        "没有匹配的已验证单样本配置；拒绝把其他版本的 VM 偏移套用到此文件。"
-        "新版本需单独分析并建立经过验证的配置。"
-    )
+    try:
+        return discover_native_static(data)
+    except RecoveryError as error:
+        raise RecoveryError(
+            "没有匹配的已验证配置，且未能从样本结构建立通用 Enigma 原生调用候选。"
+        ) from error

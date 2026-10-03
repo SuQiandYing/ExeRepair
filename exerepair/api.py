@@ -17,7 +17,13 @@ from .domain.errors import (
 )
 from .program import WrappedProgram
 from .application.recovery import RepairService
-from .domain.recovery import RecoveryError, RepairInspection, RepairResult
+from .domain.recovery import (
+    NativeCallProfile,
+    RecoveryError,
+    RepairInspection,
+    RepairResult,
+)
+from .workflows.profiles import EXHIBIT_DMM_TP02
 
 __all__ = [
     "ErrorCode",
@@ -33,6 +39,8 @@ __all__ = [
     "WrappedProgram",
     "ContainerService",
     "RepairService",
+    "NativeCallProfile",
+    "EXHIBIT_DMM_TP02",
     "RecoveryError",
     "RepairInspection",
     "RepairResult",

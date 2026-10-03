@@ -11,6 +11,7 @@ from .application.recovery import RepairService
 from .domain.errors import OperationError
 from .domain.models import PatchMode
 from .domain.recovery import NativeCallProfile
+from .launcher import launch_from_folder
 
 
 def _path_options(parser: argparse.ArgumentParser) -> None:
@@ -19,6 +20,28 @@ def _path_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-o", "--output", type=Path, help="输出路径")
     parser.add_argument("--gui", action="store_true", help="打开图形界面")
     parser.add_argument("--force", action="store_true", help="允许替换不同的现有输出")
+    parser.add_argument(
+        "--run",
+        action="store_true",
+        help="以 EXE 所在目录为工作目录启动，不修改输入文件",
+    )
+    parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="与 --run 一起使用，等待目标退出或达到超时",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        help="与 --run --wait 一起使用的等待秒数；超时后目标继续运行",
+    )
+    parser.add_argument(
+        "--launch-arg",
+        action="append",
+        default=[],
+        dest="launch_args",
+        help="传给目标程序的参数；可重复指定",
+    )
 
 
 def _recovery_options(parser: argparse.ArgumentParser) -> None:
@@ -66,12 +89,15 @@ def _inspect_or_repair(target: Path, args) -> int:
     print(f"修复配置: {profile.name}")
     print(f"原始 SHA256: {profile.baseline_sha256}")
     if isinstance(profile, NativeCallProfile):
-        print("修复方法: 已验证的原生 executeAPI 调用；不捕获、不搜索密钥")
+        if profile.requires_runtime_discovery:
+            print("修复方法: 已通过结构验证；修复时自动隔离定位原生调用")
+        else:
+            print("修复方法: 已定位的原生 executeAPI 调用；不捕获、不搜索密钥")
     else:
         print(f"载荷数量: {len(profile.payloads)}")
 
     if args.inspect:
-        print("单样本修复已识别；未启动进程或读取激活信息")
+        print("样本结构已识别；未启动进程或读取激活信息")
         return 0
 
     result = RepairService().repair(
@@ -98,6 +124,35 @@ def _inspect_or_repair(target: Path, args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.run:
+        if args.executable is None:
+            parser.error("--run 必须提供目标 EXE")
+        if args.inspect or args.output is not None or args.gui or args.force:
+            parser.error("--run 不能与 --inspect、--output、--gui 或 --force 同时使用")
+        if args.timeout is not None and not args.wait:
+            parser.error("--timeout 必须与 --run --wait 一起使用")
+        try:
+            launched = launch_from_folder(
+                args.executable,
+                args.launch_args,
+                wait=args.wait,
+                timeout=args.timeout,
+            )
+        except (OSError, ValueError) as error:
+            print(f"exerepair: 启动失败：{error}", file=sys.stderr)
+            return 2
+        print(f"启动文件: {launched.executable}")
+        print(f"工作目录: {launched.working_directory}")
+        print(f"PID: {launched.process_id}")
+        if launched.timed_out:
+            print("状态: 等待超时，目标进程仍在运行")
+        elif launched.return_code is None:
+            print("状态: 已启动")
+        else:
+            print(f"退出码: {launched.return_code}")
+        return launched.return_code if args.wait and launched.return_code is not None else 0
+    if args.wait or args.timeout is not None or args.launch_args:
+        parser.error("--wait、--timeout 和 --launch-arg 只能与 --run 一起使用")
     if args.gui or args.executable is None:
         from .ui import main as ui_main
 

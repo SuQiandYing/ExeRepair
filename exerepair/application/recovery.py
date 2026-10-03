@@ -13,6 +13,7 @@ from ..domain.recovery import (
     NativeCallProfile, RecoveredPayload, RecoveryError, RepairInspection, RepairResult,
 )
 from ..formats.enigma import PEImage
+from ..adapters.native_discovery import discover_native_runtime
 from ..workflows.native_repair import build_native_repair
 from ..workflows.profiles import identify_profile
 from ..workflows.repair import build_repair, sha256, validate_payloads
@@ -184,6 +185,13 @@ class RepairService:
         if isinstance(profile, NativeCallProfile):
             if manifest is not None:
                 raise RecoveryError("该原生调用配置不使用恢复清单，不能指定 --recovery-manifest")
+            if profile.requires_runtime_discovery:
+                report_progress(
+                    "已识别通用 Enigma 原生调用结构；正在隔离进程中定位外层调用点"
+                )
+                profile = discover_native_runtime(
+                    source, original, profile, directory, progress=report_progress
+                )
             report_progress("构建已验证的原生调用补丁；不启动探测进程，不搜索密钥")
             built = build_native_repair(original, profile, compressor)
         else:

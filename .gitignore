@@ -1,0 +1,31 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+.wheelcheck/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Extracted game files
+Recovered/

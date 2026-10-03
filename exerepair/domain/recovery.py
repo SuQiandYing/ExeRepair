@@ -41,7 +41,12 @@ class RepairProfile:
 
 @dataclass(frozen=True, slots=True)
 class NativeCallProfile:
-    """Exact-build native call repair; no registered-payload recovery/search."""
+    """Native call repair profile.
+
+    Known samples may populate this from the fast identity cache.  Unknown
+    samples can be represented by a structurally verified candidate whose
+    runtime call site is still pending discovery.
+    """
     name: str
     baseline_sha256: str
     baseline_size: int
@@ -53,9 +58,10 @@ class NativeCallProfile:
     guard_rva: int
     call_rva: int
     guard_bytes: bytes
-    bootstrap_size_offsets: tuple[int, int]
-    bootstrap_source_offsets: tuple[int, int]
+    bootstrap_size_offsets: tuple[int, ...]
+    bootstrap_source_offsets: tuple[int, ...]
     payloads: tuple[PayloadSpec, ...] = field(default=(), init=False)
+    requires_runtime_discovery: bool = False
 
 
 @dataclass(frozen=True, slots=True)

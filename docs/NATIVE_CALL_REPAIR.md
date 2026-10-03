@@ -2,10 +2,11 @@
 
 ## 输入与流程
 
-本流程接收 EXE、`NativeCallProfile` 参数和压缩器。
-输入检查包括文件长度、SHA-256、PE 结构、引擎摘要与原始调用字节。
-参数保存调用 RVA、保护位置、字节模式、调度指令与重定位信息；
-文档以字段和操作说明流程，不按目标程序名称组织内容。
+本流程接收 EXE 和压缩器。已验证身份走快速配置；未命中身份时，
+先从 PE、Enigma 引导层、嵌入引擎、调度指令和重定位表建立结构候选，
+再在一次自有的临时副本进程中定位外层原生调用。候选必须绑定到
+`plugin.dll!executeAPI`，并通过唯一候选、返回地址、完整保护字节和节属性检查。
+流程不按目标程序名称组织规则，也不为单个程序写白名单文档。
 
 ```powershell
 python -m exerepair --inspect TARGET.exe
@@ -13,8 +14,11 @@ python -m exerepair TARGET.exe -o .\output\OUTPUT.exe
 ```
 
 输出副本需要目标程序所需的 DLL、配置和资源。
-该流程静态生成修复字节，不使用恢复清单、运行时捕获或 CPU/GPU 搜索；
-`--recovery-manifest` 不属于此流程的输入。引擎重封装使用 aPLib 压缩器。
+`--inspect` 只做静态识别，不启动目标进程；修复未知结构时，
+`exerepair.adapters.native_discovery` 只启动完整运行时目录的临时副本，
+不向原始进程写内存、不捕获激活值、不搜索密钥。运行时证据按当前样本
+摘要和结构字段缓存，`--recovery-manifest` 不属于此流程的输入。
+引擎重封装使用 aPLib 压缩器。
 
 ## 调用保护与跳板
 
@@ -56,6 +60,8 @@ python -m exerepair TARGET.exe -o .\output\OUTPUT.exe
 | --- | --- |
 | `domain/recovery.py` | 参数契约 |
 | `workflows/profiles.py` | 输入匹配 |
+| `workflows/native_discovery.py` | Enigma 结构发现、证据绑定和摘要缓存 |
+| `adapters/native_discovery.py` | 临时副本运行时定位与清理 |
 | `workflows/native_repair.py` | 跳板、重定位、容器迁移和重放 |
 | `application/recovery.py` | 分流、输出发布和回滚 |
 | `cli.py`、`ui/viewmodel.py` | 操作入口和结果呈现 |

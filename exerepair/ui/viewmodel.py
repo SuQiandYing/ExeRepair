@@ -139,14 +139,16 @@ class ConsoleController:
             return self._fail("此版本尚无单样本修复配置", str(error))
         profile = inspection.profile
         native = isinstance(profile, NativeCallProfile)
+        pending_runtime = native and profile.requires_runtime_discovery
         rows = (
             Row(("修复配置", profile.name), "ok"),
             Row(("原生调用" if native else "已验证载荷",
-                 f"RVA {profile.call_rva:#x}" if native else str(len(profile.payloads))), "ok"),
+                 ("运行时自动定位" if pending_runtime else f"RVA {profile.call_rva:#x}")
+                 if native else str(len(profile.payloads))), "ok"),
             Row(("加载器入口", f"0x{inspection.entry_rva:08X}"), ""),
             Row(("修复方法", "原生调用保护补丁；.repair + .epack" if native else
                  "新增 .repair；保留原始密文与真实 CRC"), "info"),
-            Row(("参考 EXE", "不需要；不自动扫描其他游戏"), "info"),
+            Row(("参考 EXE", "不需要；按当前样本结构定位"), "info"),
             Row(("激活值", "不读取、不搜索、不写入" if native else
                  "仅在恢复进程内存中使用，不写入"), "info"),
         )
@@ -156,8 +158,9 @@ class ConsoleController:
                 self._state,
                 phase="ready",
                 tone=StatusTone.SUCCESS,
-                status_title="单样本修复配置已匹配",
-                status_detail=("静态生成副本；无需 Frida/GPU 或密钥搜索。" if native else
+                status_title=("通用结构已识别" if pending_runtime else "单样本修复配置已匹配"),
+                status_detail=("修复时只在隔离进程中定位一次调用点；不读取激活值。" if pending_runtime else
+                               "静态生成副本；无需 Frida/GPU 或密钥搜索。" if native else
                                "首次需捕获/搜索；后续复用校验缓存。不会修改原始 EXE。"),
                 workflow=WorkflowKind.REPAIR,
                 rows=rows,

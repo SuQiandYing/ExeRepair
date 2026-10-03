@@ -214,7 +214,10 @@ def _decoder_candidates(
         xor_byte = image[position + 19]
         if bytes(image[position + 23 : position + 38]) != _DECODER_TAIL:
             continue
-        if not length:
+        # Some 1.31 bootstraps retain a no-op XOR loop next to the real
+        # nested decoder. It reveals no bytes and must not create a false
+        # ambiguity (or be replayed as an actual decoding layer).
+        if not length or xor_byte == 0:
             continue
         try:
             start = pe.rva_to_offset(pe.entry_rva + relative_offset)

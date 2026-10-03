@@ -14,17 +14,17 @@ from exerepair.domain.recovery import RecoveryError
 from exerepair.workflows.native_repair import (
     _retire_dispatch_relocation, build_native_repair, native_trampoline,
 )
-from exerepair.workflows.profiles import EXHIBIT_DMM
+from exerepair.workflows.profiles import EXHIBIT_DMM, EXHIBIT_DMM_TP02
 from exerepair.workflows.repair import BuiltRepair, sha256
 from tests.helpers import make_pe
 
 
-def _verify_native_guard(mismatch):
+def _verify_native_guard(mismatch, target="tp01"):
     import unicorn
     from unicorn import x86_const as r
 
-    profile = EXHIBIT_DMM
-    base, helper_rva = 0x400000, 0x964000
+    profile = EXHIBIT_DMM_TP02 if target == "tp02" else EXHIBIT_DMM
+    base, helper_rva = 0x400000, 0x970000
     helper = base+helper_rva
     continuation = base+profile.engine_base_delta+profile.dispatch_rva+5
     global_address = base+profile.engine_base_delta+profile.dispatch_global_rva
@@ -65,7 +65,8 @@ def _verify_native_guard(mismatch):
 
 
 @pytest.mark.parametrize("mismatch", [None, 0, 4, 5, 9, "already-patched", "not-unpacked"])
-def test_native_trampoline_exact_guard_and_register_flag_preservation(mismatch):
+@pytest.mark.parametrize("target", ["tp01", "tp02"])
+def test_native_trampoline_exact_guard_and_register_flag_preservation(mismatch, target):
     if importlib.util.find_spec("unicorn") is None:
         pytest.skip("optional Unicorn verifier not installed")
     # The native backend uses handled SEH probes on Windows. Keep these outside
@@ -73,7 +74,7 @@ def test_native_trampoline_exact_guard_and_register_flag_preservation(mismatch):
     result = subprocess.run([
         sys.executable, "-c",
         f"from tests.test_native_repair import _verify_native_guard; "
-        f"_verify_native_guard({mismatch!r})",
+        f"_verify_native_guard({mismatch!r}, {target!r})",
     ],capture_output=True)
     assert result.returncode == 0, result.stderr.decode(errors="replace")
     assert not result.stderr, result.stderr.decode(errors="replace")
