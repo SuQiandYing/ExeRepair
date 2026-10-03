@@ -98,7 +98,7 @@ Numba CPU 算法与结构筛选；返回候选标志，不代替完整载荷校�
 | `rc4(data, key)` | 按给定字节密钥处理输入数组，返回独立结果，用于合成及完整载荷校验。 |
 | `bit(data, pos, tag, left)` | 从 tag 状态读取一位，返回读取值与更新后的游标/位状态。 |
 | `gamma(data, pos, tag, left)` | 依格式连续读取位编码整数及更新状态，供 aPLib 前缀判断使用。 |
-| `valid_prefix(data, max_output)` | 按有界 aPLib 流规则判断前缀候选；它不输出完整游戏载荷。 |
+| `valid_prefix(data, max_output)` | 按有界 aPLib 流规则判断前缀候选；它不输出完整目标程序载荷。 |
 | `scan(prefix, cipher, start, count, max_output)` | 在起点与候选数定义的区间扫描，返回每个候选的 uint8 结构标志。 |
 
 

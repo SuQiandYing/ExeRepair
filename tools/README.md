@@ -8,7 +8,7 @@
 未指定差异时读取生成副本旁的同名 `.DIFF.json`，调用 `apply_binary_patch()`，
 要求重放输出与修改文件逐字节一致。成功打印输入/输出 SHA-256、
 `patch_replay_verified: true` 和 `runtime_launch_verified: false`；失败打印 stderr 并返回 `2`。
-脚本只读文件，不启动游戏，不修改输入。
+脚本只读文件，不启动目标程序，不修改输入。
 
 ```powershell
 python tools\verify_repair_dev.py --help
@@ -38,7 +38,7 @@ python tools\benchmark_recovery_dev.py --package-root . --count 8388608 --rounds
 ```
 
 基准反映当前设备与合成任务，不等于完整首次恢复耗时。
-两个脚本都不读注册码、自动扫描其他游戏或验证真实启动。
+工具处理显式指定的输入；重放验证与合成基准不执行目标程序。
 
 ## 模块、类型与逐项接口
 
