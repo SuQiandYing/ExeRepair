@@ -1,5 +1,7 @@
 # ExeRepair
 
+借用了YeLikesss大佬的项目https://github.com/YeLikesss/SdWrapless
+
 ExeRepair 是用于本地 EXE 容器检查、内容提取、载荷恢复和副本修复的工具。
 提供命令行、桌面界面与 Python API。要求 Python **3.10 或更高版本**。
 
