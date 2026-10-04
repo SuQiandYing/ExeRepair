@@ -7,7 +7,9 @@
 ### 配置匹配
 
 `PROFILES` 管理识别信息与处理参数。`identify_profile()` 比较完整 SHA-256 和长度，
-返回 `RepairProfile` 或 `NativeCallProfile`。未匹配时返回 `RecoveryError`。
+返回 `RepairProfile`、`NativeCallProfile` 或 `DiscCheckProfile`。
+光盘检查配置仅按精确身份匹配；其他输入保留现有原生结构发现路径。
+无法建立支持的配置时返回 `RecoveryError`。
 配置中的 RVA、VM 索引、原字节和载荷摘要限定为该身份，不能自动移用到其他输入。
 
 ### 载荷构建
@@ -24,6 +26,16 @@
 `_retire_dispatch_relocation()` 校验重定位块与目标记录；
 `build_native_repair()` 追加 `.repair` 和 `.epack`，更新已验证引导参数，
 并保持原容器和其他载荷字节不变。
+
+### 光盘检查兼容
+
+`disc_helper(profile, code_va, state_va, original_entry_va)` 返回
+`(代码字节, 状态字节, 布局字典)`；保存通用寄存器和标志，以完整模块、
+调用方及尾声保护条件控制单次修改，再还原 API 分派。
+`build_disc_repair(original, profile) -> BuiltRepair` 只接收字节和
+`DiscCheckProfile`，追加 RX `.repair` 与 RW `.rstate`，不引入新的 RWX 节，
+不启动进程或依赖压缩器。签名、ASLR、字节、范围和节表不符时拒绝构建。
+详见 [光盘检查流程](../../docs/DISC_CHECK_REPAIR.md)。
 
 ### 差异重放
 
@@ -65,7 +77,7 @@ PE 固定基址、ASLR、空白节表槽、原字节、引擎摘要或回封条�
 
 | 函数签名 | 功能、结果与边界 |
 | --- | --- |
-| `identify_profile(data: bytes) -> RepairProfile &#124; NativeCallProfile` | 计算完整SHA256并同时比对长度，返回唯一已配置身份或 RecoveryError。 明确抛出：`RecoveryError`。 |
+| `identify_profile(data: bytes) -> RepairProfile &#124; NativeCallProfile &#124; DiscCheckProfile` | 优先比较完整SHA256和长度，未命中时保留现有结构发现；无法建立配置时返回 RecoveryError。 |
 
 
 ### `repair.py`

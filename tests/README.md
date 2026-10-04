@@ -17,6 +17,7 @@
 | `test_program.py` | 内嵌/外置主程序、多资源区块、失败签名和错误信息 |
 | `test_runtime_repair.py` | BCJ、补丁范围、清单 CRC/SHA、别名、事务重读、依赖延迟加载、helper 现场/栈 |
 | `test_native_repair.py` | 跳板保护、寄存器/标志、重定位块、PE 约束、服务与 CLI/GUI 分流 |
+| `test_disc_repair.py` | 光盘检查身份/结构、RX/RW 分离、每字节保护、模块重定位、ABI 保持、单次回调与统一事务 |
 | `test_opencl_filter.py` | 合成后端缓冲区复用、输入更新、扩容释放、无效输入 |
 | `test_viewmodel.py` | 状态转换、错误状态和自定义输出 |
 

@@ -65,6 +65,24 @@ class NativeCallProfile:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscCheckProfile:
+    """Exact-build late-loaded disc-check sites, independent of file names."""
+    name: str
+    baseline_sha256: str
+    baseline_size: int
+    image_base: int
+    entry_rva: int
+    entry_bytes: bytes
+    module_image_size: int
+    caller_return_rva: int
+    caller_guard: bytes
+    return_rva: int
+    return_guard: bytes
+    success_flag_rva: int
+    payloads: tuple[PayloadSpec, ...] = field(default=(), init=False)
+
+
+@dataclass(frozen=True, slots=True)
 class RecoveredPayload:
     spec: PayloadSpec
     data: bytes = field(repr=False)
@@ -73,7 +91,7 @@ class RecoveredPayload:
 @dataclass(frozen=True, slots=True)
 class RepairInspection:
     source_path: Path
-    profile: RepairProfile | NativeCallProfile
+    profile: RepairProfile | NativeCallProfile | DiscCheckProfile
     entry_rva: int
     image_base: int
     size_of_image: int

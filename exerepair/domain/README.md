@@ -16,6 +16,9 @@
 `PayloadSpec.source_rva` 与 `source_offset` 分别是映像地址与文件地址；
 `size`、`crc32`、`clear_sha256` 是恢复载荷需匹配的条件。
 `NativeCallProfile` 不启用载荷恢复；其 `payloads` 固定为空，不作为初始化参数。
+`DiscCheckProfile` 同样没有载荷；其入口保护字节、模块映像大小、调用方保护、
+标量返回尾声及成功字段均属于精确输入身份，不按文件名或邻近版本复用。
+该类型可通过 `exerepair.api` 导入。
 `RecoveredPayload.data` 不进入默认 repr，减少无意输出载荷内容。
 
 模型中的大写属性是兼容接口，读取对应的小写字段，不添加另一套状态。

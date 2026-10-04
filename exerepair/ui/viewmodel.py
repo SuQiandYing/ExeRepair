@@ -18,7 +18,7 @@ from ..application import (
 from ..domain.errors import OperationError
 from ..domain.models import PatchMode
 from ..application.recovery import RepairService
-from ..domain.recovery import NativeCallProfile, RecoveryError, RepairInspection
+from ..domain.recovery import DiscCheckProfile, NativeCallProfile, RecoveryError, RepairInspection
 from ..formats.enigma import PEImage, decode_enigma_bootstrap
 
 
@@ -60,7 +60,7 @@ class WorkbenchState:
             phase="empty",
             tone=StatusTone.NEUTRAL,
             status_title="等待文件",
-            status_detail="拖入或选择 EXE；自动识别容器或已配置的 Enigma 目标",
+            status_detail="拖入或选择 EXE；自动识别容器或支持的修复流程",
             logs=("",),
         )
 
@@ -139,17 +139,24 @@ class ConsoleController:
             return self._fail("此版本尚无单样本修复配置", str(error))
         profile = inspection.profile
         native = isinstance(profile, NativeCallProfile)
+        disc = isinstance(profile, DiscCheckProfile)
         pending_runtime = native and profile.requires_runtime_discovery
+        if disc:
+            site_name, site = "光盘检查", f"模块 RVA {profile.return_rva:#x}"
+        elif native:
+            site_name = "原生调用"
+            site = "运行时自动定位" if pending_runtime else f"RVA {profile.call_rva:#x}"
+        else:
+            site_name, site = "已验证载荷", str(len(profile.payloads))
         rows = (
             Row(("修复配置", profile.name), "ok"),
-            Row(("原生调用" if native else "已验证载荷",
-                 ("运行时自动定位" if pending_runtime else f"RVA {profile.call_rva:#x}")
-                 if native else str(len(profile.payloads))), "ok"),
+            Row((site_name, site), "ok"),
             Row(("加载器入口", f"0x{inspection.entry_rva:08X}"), ""),
-            Row(("修复方法", "原生调用保护补丁；.repair + .epack" if native else
+            Row(("修复方法", "完整字节保护、单次检查兼容；.repair + .rstate" if disc else
+                 "原生调用保护补丁；.repair + .epack" if native else
                  "新增 .repair；保留原始密文与真实 CRC"), "info"),
             Row(("参考 EXE", "不需要；按当前样本结构定位"), "info"),
-            Row(("激活值", "不读取、不搜索、不写入" if native else
+            Row(("激活值", "不读取、不搜索、不写入" if native or disc else
                  "仅在恢复进程内存中使用，不写入"), "info"),
         )
         with self._lock:
@@ -160,6 +167,7 @@ class ConsoleController:
                 tone=StatusTone.SUCCESS,
                 status_title=("通用结构已识别" if pending_runtime else "单样本修复配置已匹配"),
                 status_detail=("修复时只在隔离进程中定位一次调用点；不读取激活值。" if pending_runtime else
+                               "静态生成副本；无需 Frida/GPU 或压缩器。" if disc else
                                "静态生成副本；无需 Frida/GPU 或密钥搜索。" if native else
                                "首次需捕获/搜索；后续复用校验缓存。不会修改原始 EXE。"),
                 workflow=WorkflowKind.REPAIR,

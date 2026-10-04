@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import hashlib
 
-from ..domain.recovery import NativeCallProfile, PayloadSpec, RecoveryError, RepairProfile
+from ..domain.recovery import (
+    DiscCheckProfile, NativeCallProfile, PayloadSpec, RecoveryError, RepairProfile,
+)
 from .native_discovery import discover_native_static
 
 
@@ -62,10 +64,27 @@ EXHIBIT_DMM_TP02 = NativeCallProfile(
     bootstrap_size_offsets=(121, 198),
     bootstrap_source_offsets=(126, 203),
 )
-PROFILES = (TAYUTAMA_ZERO, EXHIBIT_DMM, EXHIBIT_DMM_TP02)
+DISC_CHECK_X86_V1 = DiscCheckProfile(
+    name="disc-check-x86-v1",
+    baseline_sha256="0ebcb11b167746b907dd5c7b2d8b972275308164e888ea720d87f858d5f19496",
+    baseline_size=5521408,
+    image_base=0x400000,
+    entry_rva=0x1ACFD3,
+    entry_bytes=bytes.fromhex(
+        "52ba6400000085d2741db90010000085c9740701c801d849ebf5525454"
+        "ff1541d1b5045a4aebdf5ae900d0cb04"
+    ),
+    module_image_size=0x574000,
+    caller_return_rva=0xF2CA,
+    caller_guard=bytes.fromhex("9083f8050f8567010000"),
+    return_rva=0xC155,
+    return_guard=bytes.fromhex("8b45e88b4df464890d000000008be55dc3"),
+    success_flag_rva=0x309F8,
+)
+PROFILES = (TAYUTAMA_ZERO, EXHIBIT_DMM, EXHIBIT_DMM_TP02, DISC_CHECK_X86_V1)
 
 
-def identify_profile(data: bytes) -> RepairProfile | NativeCallProfile:
+def identify_profile(data: bytes) -> RepairProfile | NativeCallProfile | DiscCheckProfile:
     digest = hashlib.sha256(data).hexdigest()
     for profile in PROFILES:
         if digest == profile.baseline_sha256 and len(data) == profile.baseline_size:

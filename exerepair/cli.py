@@ -10,7 +10,7 @@ from .application import ContainerService, ExtractionOptions
 from .application.recovery import RepairService
 from .domain.errors import OperationError
 from .domain.models import PatchMode
-from .domain.recovery import NativeCallProfile
+from .domain.recovery import DiscCheckProfile, NativeCallProfile
 from .launcher import launch_from_folder
 
 
@@ -88,7 +88,9 @@ def _inspect_or_repair(target: Path, args) -> int:
     profile = inspection.profile
     print(f"修复配置: {profile.name}")
     print(f"原始 SHA256: {profile.baseline_sha256}")
-    if isinstance(profile, NativeCallProfile):
+    if isinstance(profile, DiscCheckProfile):
+        print("修复类型: 光盘检查兼容；不捕获、不搜索密钥、不依赖压缩器")
+    elif isinstance(profile, NativeCallProfile):
         if profile.requires_runtime_discovery:
             print("修复方法: 已通过结构验证；修复时自动隔离定位原生调用")
         else:

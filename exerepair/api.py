@@ -18,6 +18,7 @@ from .domain.errors import (
 from .program import WrappedProgram
 from .application.recovery import RepairService
 from .domain.recovery import (
+    DiscCheckProfile,
     NativeCallProfile,
     RecoveryError,
     RepairInspection,
@@ -39,6 +40,7 @@ __all__ = [
     "WrappedProgram",
     "ContainerService",
     "RepairService",
+    "DiscCheckProfile",
     "NativeCallProfile",
     "EXHIBIT_DMM_TP02",
     "RecoveryError",

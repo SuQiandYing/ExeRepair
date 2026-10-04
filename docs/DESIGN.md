@@ -32,8 +32,10 @@
 ## 修复策略与发布
 
 `identify_profile()` 同时检查完整摘要和长度。`RepairProfile` 走载荷恢复策略，
-`NativeCallProfile` 走静态原生调用策略，两者共用 `RepairService` 的发布层。
-未知身份会返回 `RecoveryError`，不按文件名或相近版本复用偏移。
+`NativeCallProfile` 走静态原生调用策略，`DiscCheckProfile` 走光盘检查兼容策略，
+三者共用 `RepairService` 的发布层。
+未命中已知身份时保留现有原生结构发现；光盘检查配置不走猜测偏移的回退。
+无法建立支持的配置会返回 `RecoveryError`，不按文件名或相近版本复用偏移。
 
 载荷策略的缓存先重新验证；无有效缓存时才延迟导入捕获与恢复依赖。
 构建器输入是字节、配置、载荷和压缩回调，输出为 `BuiltRepair(data, patch, report)`，

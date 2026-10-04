@@ -10,11 +10,13 @@ from typing import Callable
 
 from ..adapters.aplib import AplibCompressor
 from ..domain.recovery import (
-    NativeCallProfile, RecoveredPayload, RecoveryError, RepairInspection, RepairResult,
+    DiscCheckProfile, NativeCallProfile, RecoveredPayload, RecoveryError, RepairInspection,
+    RepairResult,
 )
 from ..formats.enigma import PEImage
 from ..adapters.native_discovery import discover_native_runtime
 from ..workflows.native_repair import build_native_repair
+from ..workflows.disc_repair import build_disc_repair
 from ..workflows.profiles import identify_profile
 from ..workflows.repair import build_repair, sha256, validate_payloads
 
@@ -179,10 +181,16 @@ class RepairService:
             raise RecoveryError("输出必须是副本，不能覆盖原始样本或其硬链接")
         directory = (Path(work_dir).expanduser().resolve() if work_dir is not None
                      else destination.parent / ".exerepair" / profile.baseline_sha256[:12])
-        compressor = self._compressor or AplibCompressor(aplib_dll)
+        compressor = (None if isinstance(profile, DiscCheckProfile)
+                      else self._compressor or AplibCompressor(aplib_dll))
         manifest_path = None
         payloads = ()
-        if isinstance(profile, NativeCallProfile):
+        if isinstance(profile, DiscCheckProfile):
+            if manifest is not None:
+                raise RecoveryError("该光盘检查配置不使用恢复清单，不能指定 --recovery-manifest")
+            report_progress("构建光盘检查兼容副本；不捕获、不搜索密钥、不依赖压缩器")
+            built = build_disc_repair(original, profile)
+        elif isinstance(profile, NativeCallProfile):
             if manifest is not None:
                 raise RecoveryError("该原生调用配置不使用恢复清单，不能指定 --recovery-manifest")
             if profile.requires_runtime_discovery:
