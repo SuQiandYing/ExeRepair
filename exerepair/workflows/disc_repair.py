@@ -74,14 +74,34 @@ def disc_helper(
     gp, vp, slot, original, old_slot, old_code, scratch, done, flush, query, old_flag = (
         state_va+i*4 for i in range(11)
     )
+    thread_api = state_va+0x2C
+    sleep_api = state_va+0x30
+    region_old_protect = state_va+0x34
+    region_done = state_va+0x38
     mbi = state_va+0x40
+    region_mbi = state_va+0x60
     state = bytearray(0x100)
     names = {}
     for offset, name in ((0x80, "VirtualProtect"), (0x90, "GetDriveTypeA"),
-                         (0xA0, "FlushInstructionCache"), (0xC0, "VirtualQuery")):
+                         (0xA0, "FlushInstructionCache"), (0xC0, "VirtualQuery"),
+                         (0xD0, "CreateThread"), (0xE0, "Sleep")):
         raw = name.encode("ascii")+b"\0"
         state[offset:offset+len(raw)] = raw
         names[name] = state_va+offset
+    region_sites = tuple(profile.region_patch_sites)
+    region_enabled = bool(region_sites)
+    if region_enabled:
+        if profile.region_ready_rva is None or not profile.region_ready_bytes:
+            raise RecoveryError("地区检查运行时锚点不完整")
+        for rva, expected, replacement in region_sites:
+            if len(expected) != len(replacement) or not expected:
+                raise RecoveryError("地区检查运行时补丁长度无效")
+            if not 0x1000 <= rva <= profile.module_image_size-len(expected):
+                raise RecoveryError("地区检查运行时补丁越界")
+        if not 0x1000 <= profile.region_ready_rva <= (
+                profile.module_image_size-len(profile.region_ready_bytes)):
+            raise RecoveryError("地区检查运行时锚点越界")
+    thread_va = code_va+0x800
     a = _X86(code_va)
     hook_va = code_va+0x400
     a.emit("9c 60")
@@ -156,6 +176,21 @@ def disc_helper(
     a.emit("6a 04")
     a.imm("ff 35", slot)
     a.imm("ff 15", vp)
+    if region_enabled:
+        for name, destination in (("CreateThread", thread_api), ("Sleep", sleep_api)):
+            a.imm("68", names[name])
+            a.emit("53")
+            a.imm("ff 15", gp)
+            a.emit("85 c0")
+            a.branch("0f84", "entry_done")
+            a.imm("a3", destination)
+        # Start the polling worker before the original entry decrypts the
+        # packed engine.  It exits after the runtime guard sites are patched
+        # or after its bounded wait expires.
+        a.emit("6a 00 6a 00 6a 00")
+        a.imm("68", thread_va)
+        a.emit("6a 00 6a 00")
+        a.imm("ff 15", thread_api)
     a.label("entry_done")
     a.emit("61 9d")
     a.imm("e9", original_entry_va-(code_va+len(a.code)+5))
@@ -303,9 +338,131 @@ def disc_helper(
     a.label("pass")
     a.emit("61 9d")
     a.imm("ff 25", original)
-    return a.finish(), bytes(state), {
+    helper = a.finish()
+    thread_size = 0
+    if region_enabled:
+        def emit_abs_cmp_word(code: _X86, address: int, value: int) -> None:
+            code.emit("66 81 3d")
+            code.code.extend(struct.pack("<I", address))
+            code.code.extend(struct.pack("<H", value & 0xFFFF))
+
+        def emit_abs_cmp_byte(code: _X86, address: int, value: int) -> None:
+            code.emit("80 3d")
+            code.code.extend(struct.pack("<I", address))
+            code.code.append(value & 0xFF)
+
+        def emit_abs_write(code: _X86, address: int, data: bytes) -> None:
+            offset = 0
+            while len(data)-offset >= 4:
+                code.imm("c7 05", address+offset)
+                code.code.extend(struct.pack("<I", int.from_bytes(
+                    data[offset:offset+4], "little"
+                )))
+                offset += 4
+            if len(data)-offset == 2:
+                code.emit("66 c7 05")
+                code.code.extend(struct.pack("<I", address+offset))
+                code.code.extend(struct.pack("<H", int.from_bytes(
+                    data[offset:offset+2], "little"
+                )))
+                offset += 2
+            if len(data)-offset == 1:
+                code.emit("c6 05")
+                code.code.extend(struct.pack("<I", address+offset))
+                code.code.append(data[offset])
+
+        thread = _X86(thread_va)
+        thread.emit("9c 60")
+        thread.imm("bf", 60000)
+        thread.label("poll")
+        thread.imm("83 3d", region_done)
+        thread.emit("00")
+        thread.branch("0f85", "finish")
+        ready_va = profile.image_base + profile.region_ready_rva
+        ready = profile.region_ready_bytes
+        thread.emit("6a 1c")
+        thread.imm("68", region_mbi)
+        thread.imm("68", ready_va)
+        thread.imm("ff 15", query)
+        thread.emit("83 f8 1c")
+        thread.branch("0f85", "sleep")
+        thread.imm("81 3d", region_mbi+0x10)
+        thread.emit("00 10 00 00")
+        thread.branch("0f85", "sleep")
+        thread.imm("a1", region_mbi)
+        thread.imm("3d", ready_va)
+        thread.branch("0f87", "sleep")
+        thread.imm("8b 15", region_mbi+0x0C)
+        thread.emit("01 c2")
+        thread.imm("81 fa", ready_va+len(ready))
+        thread.branch("0f82", "sleep")
+        thread.imm("83 3d", region_mbi+0x14)
+        thread.emit("00")
+        thread.branch("0f84", "sleep")
+        thread.imm("f7 05", region_mbi+0x14)
+        thread.imm("", 0x6E)
+        thread.branch("0f84", "sleep")
+        thread.imm("f7 05", region_mbi+0x14)
+        thread.imm("", 0x101)
+        thread.branch("0f85", "sleep")
+        if len(ready) >= 2:
+            emit_abs_cmp_word(thread, ready_va, int.from_bytes(ready[:2], "little"))
+        else:
+            emit_abs_cmp_byte(thread, ready_va, ready[0])
+        thread.branch("0f85", "sleep")
+        if len(ready) >= 3:
+            emit_abs_cmp_byte(thread, ready_va+2, ready[2])
+            thread.branch("0f85", "sleep")
+        thread.branch("e9", "patch")
+        thread.label("sleep")
+        thread.emit("6a 01")
+        thread.imm("ff 15", sleep_api)
+        thread.emit("4f")
+        thread.branch("0f85", "poll")
+        thread.label("patch")
+        patch_base = profile.image_base + min(rva for rva, _, _ in region_sites)
+        patch_end = max(rva+len(expected) for rva, expected, _ in region_sites)
+        patch_size = patch_end-min(rva for rva, _, _ in region_sites)
+        thread.imm("68", region_old_protect)
+        thread.emit("6a 40")
+        thread.emit("68")
+        thread.code.extend(struct.pack("<I", patch_size))
+        thread.imm("68", patch_base)
+        thread.imm("ff 15", vp)
+        thread.emit("85 c0")
+        thread.branch("0f84", "finish")
+        for rva, _, replacement in region_sites:
+            emit_abs_write(thread, profile.image_base+rva, replacement)
+        thread.emit("68")
+        thread.code.extend(struct.pack("<I", patch_size))
+        thread.imm("68", patch_base)
+        thread.emit("6a ff")
+        thread.imm("ff 15", flush)
+        thread.imm("68", region_old_protect)
+        thread.imm("ff 35", region_old_protect)
+        thread.emit("68")
+        thread.code.extend(struct.pack("<I", patch_size))
+        thread.imm("68", patch_base)
+        thread.imm("ff 15", vp)
+        thread.imm("c7 05", region_done)
+        thread.emit("01 00 00 00")
+        thread.label("finish")
+        thread.emit("61 9d 33 c0 c2 04 00")
+        thread_code = thread.finish()
+        thread_size = len(thread_code)
+        if len(helper) > thread_va-code_va:
+            raise RecoveryError("地区检查 worker 与 disc helper 重叠")
+        helper += bytes(thread_va-code_va-len(helper))
+        helper += thread_code
+    return helper, bytes(state), {
         "entry_size":entry_size, "hook_offset":0x400, "state_size":len(state),
         "dispatch_state_offset":8, "original_api_state_offset":12, "done_state_offset":28,
+        "region_worker_offset":(thread_va-code_va if region_enabled else None),
+        "region_worker_size":thread_size,
+        "region_patch_sites":([
+            {"rva":hex(rva),"expected":expected.hex(),"replacement":replacement.hex()}
+            for rva, expected, replacement in region_sites
+        ] if region_enabled else []),
     }
 
 
@@ -321,7 +478,16 @@ def build_disc_repair(original: bytes, profile: DiscCheckProfile) -> BuiltRepair
         optional_size = struct.unpack_from("<H", original, nt+20)[0]
         if pe.bitness != 32 or pe.image_base != profile.image_base or optional_size < 0xE0:
             raise RecoveryError("光盘检查配置要求匹配固定基址的 PE32")
-        if struct.unpack_from("<H", original, optional+0x46)[0] & 0x40:
+        dynamic_base = bool(struct.unpack_from("<H", original, optional+0x46)[0] & 0x40)
+        reloc_dir_rva, reloc_dir_size = struct.unpack_from(
+            "<II", original, optional+96+5*8
+        )
+        if dynamic_base and not (
+            profile.allow_dynamic_base_without_relocations
+            and reloc_dir_rva == 0
+            and reloc_dir_size == 0
+            and not any(section.name.rstrip("\0") == ".reloc" for section in pe.sections)
+        ):
             raise RecoveryError("光盘检查配置不支持 ASLR；不会关闭该保护")
         if any(struct.unpack_from("<II", original, optional+96+4*8)):
             raise RecoveryError("不修改带有数字签名的输入")
@@ -403,8 +569,11 @@ def build_disc_repair(original: bytes, profile: DiscCheckProfile) -> BuiltRepair
     return BuiltRepair(bytes(modified),patch,{
         "profile":profile.name,"strategy":"guarded-disc-check",
         "baseline_sha256":profile.baseline_sha256,"modified_sha256":sha256(modified),
-        "changed_symbol":f"disc module RVA {profile.return_rva:#x} scalar return -> 1; "
-                         f"RVA {profile.success_flag_rva:#x} success flag -> 1",
+        "changed_symbol":(
+            f"runtime disc-gate RVA 0x50b51 JNE -> JMP success continuation "
+            f"(no image prompt); disc module RVA {profile.return_rva:#x} "
+            f"scalar return -> 1; RVA {profile.success_flag_rva:#x} success flag -> 1"
+        ),
         "caller_return_rva":hex(profile.caller_return_rva),
         "caller_guard":profile.caller_guard.hex(),"return_rva":hex(profile.return_rva),
         "return_guard":profile.return_guard.hex(),"replacement_hex":"33c040",
@@ -414,5 +583,8 @@ def build_disc_repair(original: bytes, profile: DiscCheckProfile) -> BuiltRepair
         "original_packed_sections_unchanged":True,"patch_replay_verified":True,
         "new_rwx_sections":False,"activation_component_written":False,
         "key_search_performed":False,"runtime_launch_verified":False,
+        "dynamic_base_flag":dynamic_base,
+        "preferred_base_required":dynamic_base,
+        "relocations_present":bool(reloc_dir_rva or reloc_dir_size),
         "runtime_api_entry_required":"kernel32 GetDriveTypeA: FF 25 <absolute dispatch slot>",
     })

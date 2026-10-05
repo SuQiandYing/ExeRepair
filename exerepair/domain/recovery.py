@@ -79,6 +79,10 @@ class DiscCheckProfile:
     return_rva: int
     return_guard: bytes
     success_flag_rva: int
+    region_ready_rva: int | None = None
+    region_ready_bytes: bytes = b""
+    region_patch_sites: tuple[tuple[int, bytes, bytes], ...] = ()
+    allow_dynamic_base_without_relocations: bool = False
     payloads: tuple[PayloadSpec, ...] = field(default=(), init=False)
 
 

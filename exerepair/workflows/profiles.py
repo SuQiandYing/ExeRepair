@@ -81,7 +81,44 @@ DISC_CHECK_X86_V1 = DiscCheckProfile(
     return_guard=bytes.fromhex("8b45e88b4df464890d000000008be55dc3"),
     success_flag_rva=0x309F8,
 )
-PROFILES = (TAYUTAMA_ZERO, EXHIBIT_DMM, EXHIBIT_DMM_TP02, DISC_CHECK_X86_V1)
+DISC_CHECK_X86_V2 = DiscCheckProfile(
+    name="disc-check-x86-v2",
+    baseline_sha256="422b73af3108c61c793aabefd7221b677ae81058bf6e0cab328b35e7a766fbdb",
+    baseline_size=5659136,
+    image_base=0x400000,
+    entry_rva=0x5017000,
+    entry_bytes=bytes.fromhex(
+        "6800000000680100000068000040006800604105e9000400000422000000000000"
+        "c621000000000000a2210000"
+    ),
+    module_image_size=0x57A000,
+    caller_return_rva=0xFA13,
+    caller_guard=bytes.fromhex("9083f8050f8567010000"),
+    return_rva=0xC160,
+    return_guard=bytes.fromhex("8b45e88b4df464890d000000008be55dc3"),
+    success_flag_rva=0x309D8,
+    region_ready_rva=0x5A5F0,
+    region_ready_bytes=bytes.fromhex("558bec"),
+    region_patch_sites=(
+        # The late-loaded SiglusEngine disc gate branches to the MessageBoxW
+        # path when the runtime scan returns false.  Redirect that branch to
+        # its existing success continuation; the surrounding scan remains
+        # intact and no image/drive is required.
+        (0x50B51, bytes.fromhex("0f852d010000"), bytes.fromhex("e92e01000090")),
+        (0x5AC7E, bytes.fromhex("e86df9ffff"), bytes.fromhex("e98d020000")),
+        (0x5AC85, bytes.fromhex("0f8594000000"), bytes.fromhex("e99500000090")),
+        (0x5AD26, bytes.fromhex("0f85ed000000"), bytes.fromhex("e9ee00000090")),
+        (0x5AE20, bytes.fromhex("0f85ea000000"), bytes.fromhex("e9eb00000090")),
+    ),
+    allow_dynamic_base_without_relocations=True,
+)
+PROFILES = (
+    TAYUTAMA_ZERO,
+    EXHIBIT_DMM,
+    EXHIBIT_DMM_TP02,
+    DISC_CHECK_X86_V1,
+    DISC_CHECK_X86_V2,
+)
 
 
 def identify_profile(data: bytes) -> RepairProfile | NativeCallProfile | DiscCheckProfile:
