@@ -9,7 +9,7 @@
 | [DESIGN.md](DESIGN.md) | 分层、加载、发布、并发与验证 |
 | [ENIGMA_RUNTIME_REPAIR.md](ENIGMA_RUNTIME_REPAIR.md) | 引擎解析、载荷恢复、缓存与复制辅助代码 |
 | [NATIVE_CALL_REPAIR.md](NATIVE_CALL_REPAIR.md) | 调用保护检查、跳板、重定位与容器迁移 |
-| [DISC_CHECK_REPAIR.md](DISC_CHECK_REPAIR.md) | 光盘检查兼容、独立代码与状态节、单次回调 |
+| [DISC_CHECK_REPAIR.md](DISC_CHECK_REPAIR.md) | 光盘与安装目录兼容、Unicode 字符串契约、保护及验证边界 |
 | [REPAIR_WORKFLOWS.md](REPAIR_WORKFLOWS.md) | 流程选择、参数契约与验证步骤 |
 
 ## 维护约定

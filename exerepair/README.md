@@ -45,7 +45,9 @@
 ### `api.py`
 
 聚合容器服务、修复服务、结果对象和类型化错误，供脚本集成。
-光盘检查流程另外导出不可变 `DiscCheckProfile`；处理仍调用同一个
+光盘检查流程另外导出不可变 `DiscCheckProfile` 与 `PortableSetupProfile`；
+后者描述可选安装目录调用替换，前者的 `portable_setup` 默认是 `None`。
+处理仍调用同一个
 `RepairService.inspect()` / `repair()`，不需要专用的入口脚本。
 
 公开导出：`ErrorCode`、`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ExtractError`、`LoadError`、`OperationError`、`WrappedProgram`、`ContainerService`、`RepairService`、`RecoveryError`、`RepairInspection`、`RepairResult`。

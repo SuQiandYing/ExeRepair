@@ -4,7 +4,8 @@ from __future__ import annotations
 import hashlib
 
 from ..domain.recovery import (
-    DiscCheckProfile, NativeCallProfile, PayloadSpec, RecoveryError, RepairProfile,
+    DiscCheckProfile, NativeCallProfile, PayloadSpec, PortableSetupProfile,
+    RecoveryError, RepairProfile,
 )
 from .native_discovery import discover_native_static
 
@@ -80,6 +81,18 @@ DISC_CHECK_X86_V1 = DiscCheckProfile(
     return_rva=0xC155,
     return_guard=bytes.fromhex("8b45e88b4df464890d000000008be55dc3"),
     success_flag_rva=0x309F8,
+    # Runtime evidence from the unpacked V1 image:
+    #   0x571700 -> HKLM RegOpenKeyEx dispatch at [0x77B038]
+    #   0x571840 -> HKLM RegQueryValueEx dispatch at [0x77B004]
+    # The compatibility layer replaces only these process-local slots and
+    # supplies paths from the current working directory; it never writes the
+    # Windows registry.
+    registry_open_slot_rva=0x37B038,
+    registry_query_slot_rva=0x37B004,
+    registry_key_prefix=b"SoftWare\\",
+    registry_value_names=(b"exe_dir", b"dat_dir", b"dat_setup"),
+    registry_ready_rva=0x171700,
+    registry_ready_bytes=bytes.fromhex("6aff6838947600"),
 )
 DISC_CHECK_X86_V2 = DiscCheckProfile(
     name="disc-check-x86-v2",
@@ -100,7 +113,7 @@ DISC_CHECK_X86_V2 = DiscCheckProfile(
     region_ready_rva=0x5A5F0,
     region_ready_bytes=bytes.fromhex("558bec"),
     region_patch_sites=(
-        # The late-loaded SiglusEngine disc gate branches to the MessageBoxW
+        # The late-loaded disc gate branches to the MessageBoxW
         # path when the runtime scan returns false.  Redirect that branch to
         # its existing success continuation; the surrounding scan remains
         # intact and no image/drive is required.
@@ -109,8 +122,35 @@ DISC_CHECK_X86_V2 = DiscCheckProfile(
         (0x5AC85, bytes.fromhex("0f8594000000"), bytes.fromhex("e99500000090")),
         (0x5AD26, bytes.fromhex("0f85ed000000"), bytes.fromhex("e9ee00000090")),
         (0x5AE20, bytes.fromhex("0f85ea000000"), bytes.fromhex("e9eb00000090")),
+        # The next setup/path gate returns from the same late-loaded flow.
+        # JE 0x45BA24 is the success continuation after the path check.
+        (0x5B9BD, bytes.fromhex("7465"), bytes.fromhex("eb65")),
+        # Save-folder gate: JE 0x45BAE2 is the success continuation after
+        # the save-folder registry/path check.
+        (0x5BABC, bytes.fromhex("7424"), bytes.fromhex("eb24")),
+        # The second save-folder path check reaches the same message through
+        # JE 0x45BB4C.
+        (0x5BB23, bytes.fromhex("7427"), bytes.fromhex("eb27")),
+        # Execution-folder gate: retain the established success continuation.
+        (0x5BB59, bytes.fromhex("7416"), bytes.fromhex("eb16")),
+        # Setup/registry gate caller: after the runtime helper returns,
+        # JNE 0x45B96B skips the setup error dialog when the query succeeds.
+        # Keep the original success continuation and make this exact branch
+        # unconditional after the late module has been materialized.
+        (0x5B857, bytes.fromhex("0f850e010000"), bytes.fromhex("e90f01000090")),
     ),
     allow_dynamic_base_without_relocations=True,
+    portable_setup=PortableSetupProfile(
+        key_check=(0x5B84D, bytes.fromhex("e80e681300")),
+        directory_queries=(
+            (0x5B98C, bytes.fromhex("e8ff671300")),
+            (0x5BA96, bytes.fromhex("e8f5661300")),
+        ),
+        setup_query=(0x5BB00, bytes.fromhex("e88b661300")),
+        directory_object_rva=0x4719D84,
+        assign_string=(0x2070, bytes.fromhex("558bec538b5d0c")),
+        assign_text=(0x2450, bytes.fromhex("558bec578bf8")),
+    ),
 )
 PROFILES = (
     TAYUTAMA_ZERO,

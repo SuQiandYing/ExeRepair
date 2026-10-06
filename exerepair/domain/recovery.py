@@ -65,6 +65,25 @@ class NativeCallProfile:
 
 
 @dataclass(frozen=True, slots=True)
+class PortableSetupProfile:
+    """Guarded setup calls using an engine-owned UTF-16 directory string.
+
+    Each site is (RVA, original bytes). Query callers pass the destination in
+    ECX and retain ownership of their stack argument. assign_string copies a
+    24-byte engine string (callee pops 8); assign_text copies UTF-16 code units
+    from EAX into the ESI destination (callee pops 4). These ABIs must be proven
+    for the exact input identity; this is not a general registry API shim.
+    """
+    key_check: tuple[int, bytes]
+    directory_queries: tuple[tuple[int, bytes], ...]
+    setup_query: tuple[int, bytes]
+    directory_object_rva: int
+    assign_string: tuple[int, bytes]
+    assign_text: tuple[int, bytes]
+    installed_value: str = "full"
+
+
+@dataclass(frozen=True, slots=True)
 class DiscCheckProfile:
     """Exact-build late-loaded disc-check sites, independent of file names."""
     name: str
@@ -82,7 +101,21 @@ class DiscCheckProfile:
     region_ready_rva: int | None = None
     region_ready_bytes: bytes = b""
     region_patch_sites: tuple[tuple[int, bytes, bytes], ...] = ()
+    # Exact runtime setup/installation-gate patches in the wrapper image.
+    # These are process-local byte changes; they do not write the host
+    # registry and are intentionally separate from the V1 dispatch shim.
+    setup_patch_sites: tuple[tuple[int, bytes, bytes], ...] = ()
+    # Optional process-local registry compatibility.  These fields describe
+    # only an exact, already-identified dispatch table; they do not authorize
+    # writes to the host registry.
+    registry_open_slot_rva: int | None = None
+    registry_query_slot_rva: int | None = None
+    registry_key_prefix: bytes = b""
+    registry_value_names: tuple[bytes, ...] = ()
+    registry_ready_rva: int | None = None
+    registry_ready_bytes: bytes = b""
     allow_dynamic_base_without_relocations: bool = False
+    portable_setup: PortableSetupProfile | None = None
     payloads: tuple[PayloadSpec, ...] = field(default=(), init=False)
 
 

@@ -18,6 +18,7 @@
 | `test_runtime_repair.py` | BCJ、补丁范围、清单 CRC/SHA、别名、事务重读、依赖延迟加载、helper 现场/栈 |
 | `test_native_repair.py` | 跳板保护、寄存器/标志、重定位块、PE 约束、服务与 CLI/GUI 分流 |
 | `test_disc_repair.py` | 光盘检查身份/结构、RX/RW 分离、每字节保护、模块重定位、ABI 保持、单次回调与统一事务 |
+| `test_portable_setup.py` | 配置驱动目录查询、补丁重放、每字节保护、Unicode/UTF-16、范围冲突及 worker 超时不写入 |
 | `test_opencl_filter.py` | 合成后端缓冲区复用、输入更新、扩容释放、无效输入 |
 | `test_viewmodel.py` | 状态转换、错误状态和自定义输出 |
 
@@ -27,6 +28,8 @@
 
 ```powershell
 python -m pip install -e ".[dev]"
+# 需要执行合成机器码验证时
+python -m pip install -e ".[dev,verification]"
 python -m pytest -q
 python -m pytest tests/test_stub.py -q
 python -m pytest tests/test_runtime_repair.py -k manifest -q
@@ -37,6 +40,11 @@ python -m ruff check exerepair tests tools
 测试函数的参数表示 pytest 夹具或参数化输入，不是产品 CLI 参数。
 参数化用例会展开为多个测试项，因此函数数量与执行测试数量不同。
 机器码验证需要其测试声明的 Unicorn 环境，部分验证在独立子进程中执行。
+
+安装目录测试使用合成调用点、字符串对象和 Unicode 目录，不依赖安装注册表。
+子进程检查调用约定、栈与寄存器、每个保护字节、超时分支及三字节替换的完整性；
+长文本与非 BMP 字符按 UTF-16 代码单元计数。未安装 Unicorn 时明确跳过，
+不得将跳过项计作已完成机器码验证。
 
 ## 验收范围
 

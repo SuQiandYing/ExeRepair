@@ -15,6 +15,7 @@ dependencies = ["tkinterdnd2"]
 [project.optional-dependencies]
 recovery = ["frida", "psutil", "numpy", "numba"]
 dev = ["pytest", "ruff"]
+verification = ["unicorn"]
 
 [project.scripts]
 exerepair = "exerepair.cli:main"

@@ -18,7 +18,9 @@
 `NativeCallProfile` 不启用载荷恢复；其 `payloads` 固定为空，不作为初始化参数。
 `DiscCheckProfile` 同样没有载荷；其入口保护字节、模块映像大小、调用方保护、
 标量返回尾声及成功字段均属于精确输入身份，不按文件名或邻近版本复用。
-该类型可通过 `exerepair.api` 导入。
+该类型及可选 `PortableSetupProfile` 可通过 `exerepair.api` 导入。
+后者集中保存安装目录查询、字符串函数保护和已初始化目录对象的位置；
+`DiscCheckProfile.portable_setup` 默认 `None`，不启用额外目录处理。
 `RecoveredPayload.data` 不进入默认 repr，减少无意输出载荷内容。
 
 模型中的大写属性是兼容接口，读取对应的小写字段，不添加另一套状态。
@@ -274,6 +276,21 @@
 | `bootstrap_source_offsets` | `tuple[int, int]` | `必填` | 两组引导源RVA参数相对位置 |
 | `payloads` | `tuple[PayloadSpec, ...]` | `field(default=(), init=False)` | 规定顺序的载荷规格集合 |
 
+#### `PortableSetupProfile`
+
+不可变的精确 x86 字符串 ABI 配置，不直接访问注册表或文件。
+调用约定及验证边界见 [安装目录兼容](../../docs/DISC_CHECK_REPAIR.md)。
+
+| 字段 | 类型 | 默认 / 初始化 | 含义 |
+| --- | --- | --- | --- |
+| `key_check` | `tuple[int, bytes]` | 必填 | 安装键检查调用的 RVA 与完整原字节 |
+| `directory_queries` | `tuple[tuple[int, bytes], ...]` | 必填 | 非空目录查询调用点集合 |
+| `setup_query` | `tuple[int, bytes]` | 必填 | 安装类型查询调用点 |
+| `directory_object_rva` | `int` | 必填 | 原包装映像内已初始化 Unicode 目录对象 |
+| `assign_string` | `tuple[int, bytes]` | 必填 | 引擎字符串复制函数 RVA 与保护字节 |
+| `assign_text` | `tuple[int, bytes]` | 必填 | 引擎文本赋值函数 RVA 与保护字节 |
+| `installed_value` | `str` | `"full"` | 无内嵌 NUL、容量受限的安装类型值 |
+
 #### `RecoveredPayload`
 
 | 字段 | 类型 | 默认 / 初始化 | 含义 |
@@ -286,7 +303,7 @@
 | 字段 | 类型 | 默认 / 初始化 | 含义 |
 | --- | --- | --- | --- |
 | `source_path` | `Path` | `必填` | 输入源位置 |
-| `profile` | `RepairProfile &#124; NativeCallProfile` | `必填` | 已匹配构建配置 |
+| `profile` | `RepairProfile &#124; NativeCallProfile &#124; DiscCheckProfile` | `必填` | 已匹配构建配置 |
 | `entry_rva` | `int` | `必填` | 映像入口RVA |
 | `image_base` | `int` | `必填` | 映像首选基址 |
 | `size_of_image` | `int` | `必填` | 内存映像对齐大小 |

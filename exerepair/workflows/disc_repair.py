@@ -11,6 +11,7 @@ import struct
 
 from ..domain.recovery import DiscCheckProfile, RecoveryError
 from ..formats.enigma import PEImage
+from .portable_setup import STUB_OFFSET, build_portable_setup, validate_directory_object
 from .repair import BuiltRepair, align, apply_binary_patch, sha256
 
 
@@ -29,6 +30,10 @@ class _X86:
     def imm(self, prefix: str, value: int) -> None:
         self.emit(prefix)
         self.code.extend(struct.pack("<I", value & 0xFFFFFFFF))
+
+    def imm16(self, prefix: str, value: int) -> None:
+        self.emit(prefix)
+        self.code.extend(struct.pack("<H", value & 0xFFFF))
 
     def label(self, name: str) -> None:
         if name in self.labels:
@@ -61,6 +66,41 @@ def _validate_profile(profile: DiscCheckProfile) -> None:
            for rva, size in ((profile.return_rva, len(profile.return_guard)),
                              (profile.caller_return_rva, len(profile.caller_guard)))):
         raise RecoveryError("光盘模块成功字段与保护代码重叠")
+    registry_fields = (
+        profile.registry_open_slot_rva, profile.registry_query_slot_rva,
+        profile.registry_ready_rva,
+    )
+    registry_enabled = any(value is not None for value in registry_fields)
+    if registry_enabled:
+        if (profile.registry_open_slot_rva is None or
+                profile.registry_query_slot_rva is None or
+                profile.registry_ready_rva is None or
+                not profile.registry_key_prefix or
+                not profile.registry_value_names or
+                not profile.registry_ready_bytes):
+            raise RecoveryError("注册表兼容配置不完整")
+        for rva in (profile.registry_open_slot_rva,
+                    profile.registry_query_slot_rva,
+                    profile.registry_ready_rva):
+            assert rva is not None
+            if not 0x1000 <= rva < profile.module_image_size:
+                raise RecoveryError("注册表兼容地址越界")
+        if profile.registry_ready_rva > (
+                profile.module_image_size-len(profile.registry_ready_bytes)):
+            raise RecoveryError("注册表兼容运行时锚点越界")
+        if len(profile.registry_key_prefix) > 64:
+            raise RecoveryError("注册表兼容键前缀过长")
+        if len(set(profile.registry_value_names)) != len(profile.registry_value_names):
+            raise RecoveryError("注册表兼容值名重复")
+        if any(not name or len(name) > 64 for name in profile.registry_value_names):
+            raise RecoveryError("注册表兼容值名无效")
+    for rva, expected, replacement in profile.setup_patch_sites:
+        if len(expected) != len(replacement) or not expected:
+            raise RecoveryError("运行时 setup 补丁长度无效")
+        # setup_patch_sites may target the decrypted wrapper image, whose RVA
+        # is not constrained by the late-loaded module_image_size field.
+        if not 0x1000 <= rva <= 0xFFFFEFFF-len(expected):
+            raise RecoveryError("运行时 setup 补丁地址越界")
 
 
 def disc_helper(
@@ -80,16 +120,63 @@ def disc_helper(
     region_done = state_va+0x38
     mbi = state_va+0x40
     region_mbi = state_va+0x60
-    state = bytearray(0x100)
+    region_sites = tuple(profile.region_patch_sites)
+    portable = None
+    if profile.portable_setup is not None:
+        if not region_sites or profile.registry_open_slot_rva is not None:
+            raise RecoveryError("安装目录兼容需要独立的运行时 worker，不能混用注册表分派")
+        portable = build_portable_setup(
+            profile.portable_setup, profile.image_base, code_va, profile.module_image_size,
+        )
+        existing_sites = (*region_sites, *profile.setup_patch_sites)
+        for rva, expected in portable.guards:
+            if any(rva < other + len(before) and other < rva + len(expected)
+                   for other, before, _ in existing_sites):
+                raise RecoveryError("安装目录保护点与现有运行时补丁重叠")
+        region_sites += portable.patches
+    region_enabled = bool(region_sites)
+    setup_sites = tuple(profile.setup_patch_sites)
+    setup_enabled = bool(setup_sites)
+    registry_enabled = profile.registry_open_slot_rva is not None
+    if registry_enabled != (profile.registry_query_slot_rva is not None):
+        raise RecoveryError("注册表兼容分派槽配置不对称")
+    worker_enabled = region_enabled or setup_enabled or registry_enabled
+    registry_open_slot = (
+        profile.image_base + profile.registry_open_slot_rva
+        if registry_enabled else None
+    )
+    registry_query_slot = (
+        profile.image_base + profile.registry_query_slot_rva
+        if registry_enabled else None
+    )
+    # Keep the API-name string at state+0x100 separate from mutable registry
+    # state; the string is 21 bytes including its NUL terminator.
+    registry_open_original = state_va+0x140
+    registry_query_original = state_va+0x144
+    registry_fake_handle = state_va+0x148
+    registry_done = state_va+0x14C
+    registry_get_cwd = state_va+0x150
+    registry_cwd_length = state_va+0x154
+    registry_cwd = state_va+0x160
+    registry_open_hook_va = code_va+0x800
+    registry_query_hook_va = code_va+0x980
+    registry_worker_va = code_va+0xB00
+    thread_va = code_va+0x800 if (region_enabled or setup_enabled) else registry_worker_va
+    state = bytearray(0x400 if registry_enabled else 0x100)
     names = {}
-    for offset, name in ((0x80, "VirtualProtect"), (0x90, "GetDriveTypeA"),
-                         (0xA0, "FlushInstructionCache"), (0xC0, "VirtualQuery"),
-                         (0xD0, "CreateThread"), (0xE0, "Sleep")):
+    api_names = (
+        (0x80, "VirtualProtect"), (0x90, "GetDriveTypeA"),
+        (0xA0, "FlushInstructionCache"), (0xC0, "VirtualQuery"),
+        (0xD0, "CreateThread"), (0xE0, "Sleep"),
+    )
+    if registry_enabled:
+        api_names += ((0x100, "GetCurrentDirectoryA"),)
+    for offset, name in api_names:
         raw = name.encode("ascii")+b"\0"
         state[offset:offset+len(raw)] = raw
         names[name] = state_va+offset
-    region_sites = tuple(profile.region_patch_sites)
-    region_enabled = bool(region_sites)
+    if registry_enabled:
+        struct.pack_into("<I", state, registry_fake_handle-state_va, 0x52454731)
     if region_enabled:
         if profile.region_ready_rva is None or not profile.region_ready_bytes:
             raise RecoveryError("地区检查运行时锚点不完整")
@@ -101,7 +188,6 @@ def disc_helper(
         if not 0x1000 <= profile.region_ready_rva <= (
                 profile.module_image_size-len(profile.region_ready_bytes)):
             raise RecoveryError("地区检查运行时锚点越界")
-    thread_va = code_va+0x800
     a = _X86(code_va)
     hook_va = code_va+0x400
     a.emit("9c 60")
@@ -176,7 +262,21 @@ def disc_helper(
     a.emit("6a 04")
     a.imm("ff 35", slot)
     a.imm("ff 15", vp)
-    if region_enabled:
+    if registry_enabled:
+        a.imm("68", names["GetCurrentDirectoryA"])
+        a.emit("53")
+        a.imm("ff 15", gp)
+        a.emit("85 c0")
+        a.branch("0f84", "entry_done")
+        a.imm("a3", registry_get_cwd)
+        a.imm("68", registry_cwd)
+        a.emit("68")
+        a.code.extend(struct.pack("<I", 0x1FF))
+        a.imm("ff 15", registry_get_cwd)
+        a.emit("85 c0")
+        a.branch("0f84", "entry_done")
+        a.imm("a3", registry_cwd_length)
+    if worker_enabled:
         for name, destination in (("CreateThread", thread_api), ("Sleep", sleep_api)):
             a.imm("68", names[name])
             a.emit("53")
@@ -185,8 +285,8 @@ def disc_helper(
             a.branch("0f84", "entry_done")
             a.imm("a3", destination)
         # Start the polling worker before the original entry decrypts the
-        # packed engine.  It exits after the runtime guard sites are patched
-        # or after its bounded wait expires.
+        # packed engine.  It exits after the runtime guard sites/dispatch
+        # slots are handled or after their bounded wait expires.
         a.emit("6a 00 6a 00 6a 00")
         a.imm("68", thread_va)
         a.emit("6a 00 6a 00")
@@ -340,7 +440,7 @@ def disc_helper(
     a.imm("ff 25", original)
     helper = a.finish()
     thread_size = 0
-    if region_enabled:
+    if region_enabled or setup_enabled:
         def emit_abs_cmp_word(code: _X86, address: int, value: int) -> None:
             code.emit("66 81 3d")
             code.code.extend(struct.pack("<I", address))
@@ -359,7 +459,7 @@ def disc_helper(
                     data[offset:offset+4], "little"
                 )))
                 offset += 4
-            if len(data)-offset == 2:
+            if len(data)-offset >= 2:
                 code.emit("66 c7 05")
                 code.code.extend(struct.pack("<I", address+offset))
                 code.code.extend(struct.pack("<H", int.from_bytes(
@@ -371,6 +471,53 @@ def disc_helper(
                 code.code.extend(struct.pack("<I", address+offset))
                 code.code.append(data[offset])
 
+        def emit_abs_cmp(code: _X86, address: int, data: bytes) -> None:
+            offset = 0
+            while len(data)-offset >= 4:
+                code.imm("81 3d", address+offset)
+                code.code.extend(struct.pack(
+                    "<I", int.from_bytes(data[offset:offset+4], "little")
+                ))
+                code.branch("0f85", "sleep")
+                offset += 4
+            if len(data)-offset >= 2:
+                emit_abs_cmp_word(
+                    code, address+offset,
+                    int.from_bytes(data[offset:offset+2], "little"),
+                )
+                code.branch("0f85", "sleep")
+                offset += 2
+            if len(data)-offset == 1:
+                emit_abs_cmp_byte(code, address+offset, data[offset])
+                code.branch("0f85", "sleep")
+
+        def emit_virtual_protect(
+            code: _X86, address: int, size: int, old_protect: int,
+        ) -> None:
+            code.imm("68", old_protect)
+            code.emit("6a 40")
+            code.emit("68")
+            code.code.extend(struct.pack("<I", size))
+            code.imm("68", address)
+            code.imm("ff 15", vp)
+            code.emit("85 c0")
+            code.branch("0f84", "finish")
+
+        def emit_flush_and_restore(
+            code: _X86, address: int, size: int, old_protect: int,
+        ) -> None:
+            code.emit("68")
+            code.code.extend(struct.pack("<I", size))
+            code.imm("68", address)
+            code.emit("6a ff")
+            code.imm("ff 15", flush)
+            code.imm("68", old_protect)
+            code.imm("ff 35", old_protect)
+            code.emit("68")
+            code.code.extend(struct.pack("<I", size))
+            code.imm("68", address)
+            code.imm("ff 15", vp)
+
         thread = _X86(thread_va)
         thread.emit("9c 60")
         thread.imm("bf", 60000)
@@ -378,72 +525,64 @@ def disc_helper(
         thread.imm("83 3d", region_done)
         thread.emit("00")
         thread.branch("0f85", "finish")
-        ready_va = profile.image_base + profile.region_ready_rva
-        ready = profile.region_ready_bytes
-        thread.emit("6a 1c")
-        thread.imm("68", region_mbi)
-        thread.imm("68", ready_va)
-        thread.imm("ff 15", query)
-        thread.emit("83 f8 1c")
-        thread.branch("0f85", "sleep")
-        thread.imm("81 3d", region_mbi+0x10)
-        thread.emit("00 10 00 00")
-        thread.branch("0f85", "sleep")
-        thread.imm("a1", region_mbi)
-        thread.imm("3d", ready_va)
-        thread.branch("0f87", "sleep")
-        thread.imm("8b 15", region_mbi+0x0C)
-        thread.emit("01 c2")
-        thread.imm("81 fa", ready_va+len(ready))
-        thread.branch("0f82", "sleep")
-        thread.imm("83 3d", region_mbi+0x14)
-        thread.emit("00")
-        thread.branch("0f84", "sleep")
-        thread.imm("f7 05", region_mbi+0x14)
-        thread.imm("", 0x6E)
-        thread.branch("0f84", "sleep")
-        thread.imm("f7 05", region_mbi+0x14)
-        thread.imm("", 0x101)
-        thread.branch("0f85", "sleep")
-        if len(ready) >= 2:
-            emit_abs_cmp_word(thread, ready_va, int.from_bytes(ready[:2], "little"))
-        else:
-            emit_abs_cmp_byte(thread, ready_va, ready[0])
-        thread.branch("0f85", "sleep")
-        if len(ready) >= 3:
-            emit_abs_cmp_byte(thread, ready_va+2, ready[2])
+        if region_enabled:
+            assert profile.region_ready_rva is not None
+            ready_va = profile.image_base + profile.region_ready_rva
+            ready = profile.region_ready_bytes
+            thread.emit("6a 1c")
+            thread.imm("68", region_mbi)
+            thread.imm("68", ready_va)
+            thread.imm("ff 15", query)
+            thread.emit("83 f8 1c")
             thread.branch("0f85", "sleep")
+            thread.imm("81 3d", region_mbi+0x10)
+            thread.emit("00 10 00 00")
+            thread.branch("0f85", "sleep")
+            thread.imm("a1", region_mbi)
+            thread.imm("3d", ready_va)
+            thread.branch("0f87", "sleep")
+            thread.imm("8b 15", region_mbi+0x0C)
+            thread.emit("01 c2")
+            thread.imm("81 fa", ready_va+len(ready))
+            thread.branch("0f82", "sleep")
+            thread.imm("83 3d", region_mbi+0x14)
+            thread.emit("00")
+            thread.branch("0f84", "sleep")
+            thread.imm("f7 05", region_mbi+0x14)
+            thread.imm("", 0x6E)
+            thread.branch("0f84", "sleep")
+            thread.imm("f7 05", region_mbi+0x14)
+            thread.imm("", 0x101)
+            thread.branch("0f85", "sleep")
+            emit_abs_cmp(thread, ready_va, ready)
+        for rva, expected, _ in setup_sites:
+            emit_abs_cmp(thread, profile.image_base+rva, expected)
+        if portable is not None:
+            for rva, expected in portable.guards:
+                emit_abs_cmp(thread, profile.image_base+rva, expected)
         thread.branch("e9", "patch")
         thread.label("sleep")
         thread.emit("6a 01")
         thread.imm("ff 15", sleep_api)
         thread.emit("4f")
         thread.branch("0f85", "poll")
+        # A timeout must not fall through into unverified code writes.
+        thread.branch("e9", "finish")
         thread.label("patch")
-        patch_base = profile.image_base + min(rva for rva, _, _ in region_sites)
-        patch_end = max(rva+len(expected) for rva, expected, _ in region_sites)
-        patch_size = patch_end-min(rva for rva, _, _ in region_sites)
-        thread.imm("68", region_old_protect)
-        thread.emit("6a 40")
-        thread.emit("68")
-        thread.code.extend(struct.pack("<I", patch_size))
-        thread.imm("68", patch_base)
-        thread.imm("ff 15", vp)
-        thread.emit("85 c0")
-        thread.branch("0f84", "finish")
-        for rva, _, replacement in region_sites:
-            emit_abs_write(thread, profile.image_base+rva, replacement)
-        thread.emit("68")
-        thread.code.extend(struct.pack("<I", patch_size))
-        thread.imm("68", patch_base)
-        thread.emit("6a ff")
-        thread.imm("ff 15", flush)
-        thread.imm("68", region_old_protect)
-        thread.imm("ff 35", region_old_protect)
-        thread.emit("68")
-        thread.code.extend(struct.pack("<I", patch_size))
-        thread.imm("68", patch_base)
-        thread.imm("ff 15", vp)
+        for rva, expected, replacement in setup_sites:
+            address = profile.image_base+rva
+            size = len(expected)
+            emit_virtual_protect(thread, address, size, region_old_protect)
+            emit_abs_write(thread, address, replacement)
+            emit_flush_and_restore(thread, address, size, region_old_protect)
+        if region_enabled:
+            patch_base = profile.image_base + min(rva for rva, _, _ in region_sites)
+            patch_end = max(rva+len(expected) for rva, expected, _ in region_sites)
+            patch_size = patch_end-min(rva for rva, _, _ in region_sites)
+            emit_virtual_protect(thread, patch_base, patch_size, region_old_protect)
+            for rva, _, replacement in region_sites:
+                emit_abs_write(thread, profile.image_base+rva, replacement)
+            emit_flush_and_restore(thread, patch_base, patch_size, region_old_protect)
         thread.imm("c7 05", region_done)
         thread.emit("01 00 00 00")
         thread.label("finish")
@@ -454,15 +593,207 @@ def disc_helper(
             raise RecoveryError("地区检查 worker 与 disc helper 重叠")
         helper += bytes(thread_va-code_va-len(helper))
         helper += thread_code
+    registry_worker_size = 0
+    registry_stub_sizes = {}
+    if registry_enabled:
+        if region_enabled or setup_enabled:
+            raise RecoveryError("当前配置不允许地区 worker 与注册表 worker 共用布局")
+        assert registry_open_slot is not None
+        assert registry_query_slot is not None
+        prefix = profile.registry_key_prefix
+        if len(prefix) < 9:
+            raise RecoveryError("注册表兼容键前缀必须包含完整的 ANSI 前缀")
+
+        def emit_abs_dword(code: _X86, address: int, value: int) -> None:
+            code.emit("c7 05")
+            code.code.extend(struct.pack("<I", address))
+            code.code.extend(struct.pack("<I", value & 0xFFFFFFFF))
+
+        open_hook = _X86(registry_open_hook_va)
+        open_hook.emit("60")
+        open_hook.emit("8b 44 24 24")  # root
+        open_hook.imm("3d", 0x80000002)
+        open_hook.branch("0f85", "forward")
+        open_hook.emit("8b 74 24 28")  # ANSI subkey
+        open_hook.emit("85 f6")
+        open_hook.branch("0f84", "forward")
+        open_hook.imm("81 3e", int.from_bytes(prefix[:4], "little"))
+        open_hook.branch("0f85", "forward")
+        open_hook.imm("81 7e 04", int.from_bytes(prefix[4:8], "little"))
+        open_hook.branch("0f85", "forward")
+        open_hook.emit(f"80 7e 08 {prefix[8]:02x}")
+        open_hook.branch("0f85", "forward")
+        open_hook.emit("8b 7c 24 34")  # result HKEY*
+        open_hook.emit("85 ff")
+        open_hook.branch("0f85", "success")
+        open_hook.imm("c7 07", 0x52454731)
+        open_hook.label("success")
+        open_hook.emit("c7 44 24 1c 00 00 00 00")  # saved EAX = ERROR_SUCCESS
+        open_hook.emit("61 c2 14 00")
+        open_hook.label("forward")
+        open_hook.emit("61")
+        open_hook.imm("ff 25", registry_open_original)
+        open_hook_code = open_hook.finish()
+
+        query_hook = _X86(registry_query_hook_va)
+        query_hook.emit("60")
+        query_hook.emit("8b 44 24 24")  # HKEY
+        query_hook.imm("3b 05", registry_fake_handle)
+        query_hook.branch("0f85", "forward")
+        query_hook.emit("8b 74 24 28")  # value name
+        query_hook.emit("85 f6")
+        query_hook.branch("0f84", "forward")
+        for index, value_name in enumerate(profile.registry_value_names):
+            next_label = (
+                f"try_value_{index+1}"
+                if index+1 < len(profile.registry_value_names) else "forward"
+            )
+            if len(value_name) < 4:
+                raise RecoveryError("注册表兼容值名过短")
+            query_hook.imm("81 3e", int.from_bytes(
+                value_name[:4].ljust(4, b"\0"), "little"
+            ))
+            query_hook.branch("0f85", next_label)
+            if len(value_name) > 4:
+                if len(value_name) >= 8:
+                    query_hook.imm("81 7e 04", int.from_bytes(
+                        value_name[4:8].ljust(4, b"\0"), "little"
+                    ))
+                    query_hook.branch("0f85", next_label)
+                if len(value_name) > 8:
+                    query_hook.imm16("66 81 7e 08", int.from_bytes(
+                        value_name[8:10].ljust(2, b"\0"), "little"
+                    ))
+                    query_hook.branch("0f85", next_label)
+            query_hook.branch("e9", "value")
+            if index+1 < len(profile.registry_value_names):
+                query_hook.label(next_label)
+        query_hook.label("value")
+        query_hook.emit("8b 7c 24 30")  # type DWORD*
+        query_hook.emit("85 ff")
+        query_hook.branch("0f84", "no_type")
+        query_hook.imm("c7 07", 1)  # REG_SZ
+        query_hook.label("no_type")
+        query_hook.imm("a1", registry_cwd_length)
+        query_hook.emit("40")  # include the terminating NUL
+        query_hook.emit("8b 7c 24 38")  # lpcbData
+        query_hook.emit("85 ff")
+        query_hook.branch("0f84", "no_size")
+        query_hook.emit("89 07")
+        query_hook.label("no_size")
+        query_hook.emit("8b 7c 24 34")  # destination buffer
+        query_hook.emit("85 ff")
+        query_hook.branch("0f84", "success")
+        query_hook.imm("be", registry_cwd)
+        query_hook.emit("89 c1")  # copy the returned byte count to ECX
+        query_hook.emit("f3 a4")  # rep movsb
+        query_hook.label("success")
+        query_hook.emit("c7 44 24 1c 00 00 00 00")
+        query_hook.emit("61 c2 18 00")
+        query_hook.label("forward")
+        query_hook.emit("61")
+        query_hook.imm("ff 25", registry_query_original)
+        query_hook_code = query_hook.finish()
+
+        registry_worker = _X86(registry_worker_va)
+        registry_worker.emit("9c 60")
+        registry_worker.imm("bf", 60000)
+        registry_worker.label("poll")
+        ready_va = profile.image_base + profile.registry_ready_rva
+        ready = profile.registry_ready_bytes
+        offset = 0
+        while len(ready)-offset >= 4:
+            registry_worker.imm("81 3d", ready_va+offset)
+            registry_worker.code.extend(ready[offset:offset+4])
+            registry_worker.branch("0f85", "sleep")
+            offset += 4
+        if len(ready)-offset >= 2:
+            registry_worker.emit("66 81 3d")
+            registry_worker.code.extend(struct.pack("<I", ready_va+offset))
+            registry_worker.code.extend(struct.pack(
+                "<H", int.from_bytes(ready[offset:offset+2], "little")
+            ))
+            registry_worker.branch("0f85", "sleep")
+            offset += 2
+        if len(ready)-offset == 1:
+            registry_worker.emit("80 3d")
+            registry_worker.code.extend(struct.pack("<I", ready_va+offset))
+            registry_worker.code.append(ready[offset])
+            registry_worker.branch("0f85", "sleep")
+        registry_worker.imm("a1", registry_open_slot)
+        registry_worker.emit("85 c0")
+        registry_worker.branch("0f84", "sleep")
+        registry_worker.imm("a3", registry_open_original)
+        registry_worker.imm("a1", registry_query_slot)
+        registry_worker.emit("85 c0")
+        registry_worker.branch("0f84", "sleep")
+        registry_worker.imm("a3", registry_query_original)
+        emit_abs_dword(registry_worker, registry_open_slot, registry_open_hook_va)
+        emit_abs_dword(registry_worker, registry_query_slot, registry_query_hook_va)
+        emit_abs_dword(registry_worker, registry_done, 1)
+        registry_worker.branch("e9", "finish")
+        registry_worker.label("sleep")
+        registry_worker.emit("6a 01")
+        registry_worker.imm("ff 15", sleep_api)
+        registry_worker.emit("4f")
+        registry_worker.branch("0f85", "poll")
+        registry_worker.label("finish")
+        registry_worker.emit("61 9d c2 04 00")
+        registry_worker_code = registry_worker.finish()
+
+        registry_stub_sizes = {
+            "open": len(open_hook_code), "query": len(query_hook_code),
+        }
+        registry_worker_size = len(registry_worker_code)
+        if len(helper) > registry_open_hook_va-code_va:
+            raise RecoveryError("注册表兼容 stub 与 disc helper 重叠")
+        helper += bytes(registry_open_hook_va-code_va-len(helper))
+        helper += open_hook_code
+        if len(helper) > registry_query_hook_va-code_va:
+            raise RecoveryError("注册表查询 stub 与开键 stub 重叠")
+        helper += bytes(registry_query_hook_va-code_va-len(helper))
+        helper += query_hook_code
+        if len(helper) > registry_worker_va-code_va:
+            raise RecoveryError("注册表 worker 与查询 stub 重叠")
+        helper += bytes(registry_worker_va-code_va-len(helper))
+        helper += registry_worker_code
+    if portable is not None:
+        if len(helper) > STUB_OFFSET:
+            raise RecoveryError("安装目录 stub 与运行时 worker 重叠")
+        helper += b"\xcc" * (STUB_OFFSET - len(helper)) + portable.code
     return helper, bytes(state), {
         "entry_size":entry_size, "hook_offset":0x400, "state_size":len(state),
         "dispatch_state_offset":8, "original_api_state_offset":12, "done_state_offset":28,
         "region_worker_offset":(thread_va-code_va if region_enabled else None),
         "region_worker_size":thread_size,
+        "registry_worker_offset":(
+            registry_worker_va-code_va if registry_enabled else None
+        ),
+        "registry_worker_size":registry_worker_size,
+        "registry_stub_offsets":(
+            {"open":registry_open_hook_va-code_va,
+             "query":registry_query_hook_va-code_va}
+            if registry_enabled else {}
+        ),
+        "registry_stub_sizes":registry_stub_sizes,
+        "portable_installation": portable is not None,
+        "portable_stub_offset": STUB_OFFSET if portable is not None else None,
+        "portable_directory_wstring_va": (
+            hex(portable.directory_object_va) if portable is not None else None
+        ),
+        "registry_slots":(
+            {"open":hex(profile.registry_open_slot_rva),
+             "query":hex(profile.registry_query_slot_rva)}
+            if registry_enabled else {}
+        ),
         "region_patch_sites":([
             {"rva":hex(rva),"expected":expected.hex(),"replacement":replacement.hex()}
             for rva, expected, replacement in region_sites
         ] if region_enabled else []),
+        "setup_patch_sites":([
+            {"rva":hex(rva),"expected":expected.hex(),"replacement":replacement.hex()}
+            for rva, expected, replacement in setup_sites
+        ] if setup_enabled else []),
     }
 
 
@@ -473,6 +804,8 @@ def build_disc_repair(original: bytes, profile: DiscCheckProfile) -> BuiltRepair
         raise RecoveryError("原始样本身份不匹配")
     try:
         pe = PEImage.parse(original)
+        if profile.portable_setup is not None:
+            validate_directory_object(profile.portable_setup, pe.size_of_image)
         nt = struct.unpack_from("<I", original, 0x3C)[0]
         optional = nt+24
         optional_size = struct.unpack_from("<H", original, nt+20)[0]
@@ -566,13 +899,42 @@ def build_disc_repair(original: bytes, profile: DiscCheckProfile) -> BuiltRepair
              "modified_length":len(modified),"edits":edits}
     if apply_binary_patch(original,patch) != bytes(modified):
         raise RecoveryError("光盘检查补丁重放失败")
+    registry_note = ""
+    if profile.registry_open_slot_rva is not None:
+        registry_note = (
+            f"; process-local registry shim slots "
+            f"{profile.registry_open_slot_rva:#x}/{profile.registry_query_slot_rva:#x} "
+            f"serve the current working directory for the identified values "
+            f"(no host registry writes)"
+        )
+    setup_note = ""
+    if profile.setup_patch_sites:
+        setup_note = (
+            "; runtime setup gate "
+            + ", ".join(
+                f"RVA {rva:#x} {expected.hex()} -> {replacement.hex()}"
+                for rva, expected, replacement in profile.setup_patch_sites
+            )
+            + " (process-local; no host registry writes)"
+        )
+    runtime_note = ""
+    if layout["region_patch_sites"]:
+        runtime_note = "; runtime patch sites " + ", ".join(
+            site["rva"] for site in layout["region_patch_sites"]
+        )
+    if profile.portable_setup is not None:
+        registry_note += (
+            "; setup calls use the engine-owned UTF-16 executable directory; "
+            f"installation type = {profile.portable_setup.installed_value!r}; "
+            "no installation registry access"
+        )
     return BuiltRepair(bytes(modified),patch,{
         "profile":profile.name,"strategy":"guarded-disc-check",
         "baseline_sha256":profile.baseline_sha256,"modified_sha256":sha256(modified),
         "changed_symbol":(
-            f"runtime disc-gate RVA 0x50b51 JNE -> JMP success continuation "
-            f"(no image prompt); disc module RVA {profile.return_rva:#x} "
+            f"disc module RVA {profile.return_rva:#x} "
             f"scalar return -> 1; RVA {profile.success_flag_rva:#x} success flag -> 1"
+            f"{registry_note}{setup_note}{runtime_note}"
         ),
         "caller_return_rva":hex(profile.caller_return_rva),
         "caller_guard":profile.caller_guard.hex(),"return_rva":hex(profile.return_rva),

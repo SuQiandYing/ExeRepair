@@ -20,6 +20,7 @@ from .application.recovery import RepairService
 from .domain.recovery import (
     DiscCheckProfile,
     NativeCallProfile,
+    PortableSetupProfile,
     RecoveryError,
     RepairInspection,
     RepairResult,
@@ -42,6 +43,7 @@ __all__ = [
     "RepairService",
     "DiscCheckProfile",
     "NativeCallProfile",
+    "PortableSetupProfile",
     "EXHIBIT_DMM_TP02",
     "RecoveryError",
     "RepairInspection",

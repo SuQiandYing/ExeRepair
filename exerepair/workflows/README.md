@@ -37,6 +37,20 @@
 不启动进程或依赖压缩器。签名、ASLR、字节、范围和节表不符时拒绝构建。
 详见 [光盘检查流程](../../docs/DISC_CHECK_REPAIR.md)。
 
+### 安装目录计划
+
+`portable_setup.build_portable_setup(spec, image_base, code_va, module_size)`
+返回不可变 `PortableSetupPlan(code, patches, guards, directory_object_va)`。
+它校验完整调用形态、保护范围与重叠、地址、UTF-16 文本和 helper 容量，
+不做文件或注册表 I/O，也不按配置名称分支。
+`validate_directory_object(spec, image_size)` 检查目录字符串对象在原包装映像内，
+不能将此处的映像大小替换为延迟加载模块的大小。
+
+光盘构建器合并计划与现有调用点，拒绝冲突和旧式注册表 shim 混用；
+worker 校验计划内所有原字节后才写入。布局报告中的
+`portable_installation`、`portable_stub_offset`、`portable_directory_wstring_va`
+描述是否启用、stub 位置及目录对象，不表示实际启动已经验证。
+
 ### 差异重放
 
 `apply_binary_patch()` 接受 `seep.binary-patch.v2` JSON 对象：
@@ -111,7 +125,7 @@ PE 固定基址、ASLR、空白节表槽、原字节、引擎摘要或回封条�
 以下命令从项目根目录执行。
 
 ```powershell
-python -m pytest tests/test_runtime_repair.py tests/test_native_repair.py -q
+python -m pytest tests/test_runtime_repair.py tests/test_native_repair.py tests/test_disc_repair.py tests/test_portable_setup.py -q
 ```
 
 [返回项目总说明](../../README.md)

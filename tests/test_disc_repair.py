@@ -34,7 +34,13 @@ def fixture():
     original = bytes(data)
     profile = replace(DISC_CHECK_X86_V1,name="synthetic-disc",
                       baseline_sha256=sha256(original),baseline_size=len(original),
-                      entry_rva=0x1000,entry_bytes=original[0x400:0x406])
+                      entry_rva=0x1000,entry_bytes=original[0x400:0x406],
+                      registry_open_slot_rva=None,
+                      registry_query_slot_rva=None,
+                      registry_key_prefix=b"",
+                      registry_value_names=(),
+                      registry_ready_rva=None,
+                      registry_ready_bytes=b"")
     return original, profile
 
 
@@ -95,6 +101,29 @@ def test_builder_rejects_unverified_identity_or_structure(damage):
 def test_helper_rejects_unsafe_profile(change):
     with pytest.raises(RecoveryError):
         disc_helper(replace(DISC_CHECK_X86_V1,**change),0x500000,0x501000,0x401000)
+
+
+def test_v1_registry_compatibility_is_process_local_and_layout_is_reported():
+    code,state,layout = disc_helper(
+        DISC_CHECK_X86_V1,0x50000000,0x50010000,0x401ACFD3,
+    )
+    assert len(state) == 0x400
+    assert layout["registry_slots"] == {
+        "open":"0x37b038","query":"0x37b004",
+    }
+    assert layout["registry_worker_offset"] == 0xB00
+    assert layout["registry_stub_offsets"] == {"open":0x800,"query":0x980}
+    assert state[0x100:0x100+21] == b"GetCurrentDirectoryA\0"
+    assert struct.unpack_from("<I",state,0x148)[0] == 0x52454731
+    assert len(code) <= 0x1000
+
+
+def test_registry_compatibility_rejects_partial_configuration():
+    with pytest.raises(RecoveryError):
+        disc_helper(
+            replace(DISC_CHECK_X86_V1,registry_query_slot_rva=None),
+            0x50000000,0x50010000,0x401ACFD3,
+        )
 
 
 def test_service_uses_common_publication_without_optional_components(tmp_path,monkeypatch):
@@ -170,7 +199,15 @@ def _verify_machine(mode):
     import unicorn
     from unicorn import x86_const as r
 
-    profile = DISC_CHECK_X86_V1
+    profile = replace(
+        DISC_CHECK_X86_V1,
+        registry_open_slot_rva=None,
+        registry_query_slot_rva=None,
+        registry_key_prefix=b"",
+        registry_value_names=(),
+        registry_ready_rva=None,
+        registry_ready_bytes=b"",
+    )
     code_va,state_va,entry,stack,kernel = 0x50000000,0x50010000,0x400000,0x60000000,0x71000000
     module = 0x17000000 if mode == "relocated" else 0x11000000
     code,state,layout = disc_helper(profile,code_va,state_va,entry)
