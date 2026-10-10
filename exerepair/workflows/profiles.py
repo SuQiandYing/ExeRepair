@@ -18,6 +18,7 @@ TAYUTAMA_ZERO = RepairProfile(
     engine_base_delta=0x42D000,
     vm_table_offset=0x791FAA,
     vm_table_count=33905,
+    runtime_capture_supported=True,
     payloads=(
         PayloadSpec(4096, 1536, 1207451, 15, 2386725812,
                     "e600a805bbf6c4416dca044d748b548553712ad438b82d5c211ea62908062b02"),
@@ -33,6 +34,40 @@ TAYUTAMA_ZERO = RepairProfile(
                     "7256c2ad10766b289499267049c40e306c3b4f64262949157b9a1ea0350904ec"),
         PayloadSpec(3747840, 1398784, 29370, 11, 2304045156,
                     "cdf7545b3026bd8ad76c87e5f50f0196fc3fa65824c6bc620507b0f886ccb166"),
+    ),
+)
+ENIGMA_PE32_1_31_DYNAMIC_BASE = RepairProfile(
+    name="enigma-pe32-1.31-dynamic-base",
+    baseline_sha256="74f45d87e156c347bd4529a1bcecd8e283d60918dcc0e987ada2cfcf2413141f",
+    baseline_size=4143416,
+    engine_sha256="03f34c7dc2720e2f901d5f8c46ebdb03560253a492dba4cba483dc7b2562df45",
+    engine_base_delta=0x57D000,
+    vm_table_offset=0x76F5B4,
+    vm_table_count=33905,
+    dialog_index=None,
+    dialog_destination=None,
+    predicate_index=0x6287,
+    true_index=0x142,
+    predicate_record_offset=0x740004,
+    true_record_offset=0x6A6E0C,
+    predicate_return_operand=0x69DBE7,
+    ksa_index=0x1AE8,
+    prga_index=0x1AEF,
+    native_call_target_type=0x90,
+    allow_dynamic_base=True,
+    runtime_capture_supported=True,
+    options_index=0x1AB8,
+    payloads=(
+        PayloadSpec(4096, 1536, 1207049, 15, 2985027584,
+                    "8aea32e85ae25540e8aad769758c7cbd5d8f0231ee3867d5b6f2e8695ea8b101"),
+        PayloadSpec(3153920, 1208832, 34, 11, 2213242815,
+                    "4400f7d9ccf4b287b1abc74180b3fd0b67250dfc453e52b01a5e6b6a959a98f4"),
+        PayloadSpec(3158016, 1209344, 298459, 11, 3143703694,
+                    "f035a2a3d4900c1159ba10255ffd801265d74080b6cae5052d26da39b1063097"),
+        PayloadSpec(4177920, 1507840, 17020, 11, 123775621,
+                    "4a109c9c39d43e2f6cba3cba48444ccda0ae5c50d9d9cf8a52fb8af2a9282f4d"),
+        PayloadSpec(4882432, 1525248, 21505, 11, 1575905500,
+                    "2fe38b5e8a1874b848fe7aa31ec8fca2543dc49e6cd4331d1f6b723ee0476da2"),
     ),
 )
 EXHIBIT_DMM = NativeCallProfile(
@@ -154,6 +189,7 @@ DISC_CHECK_X86_V2 = DiscCheckProfile(
 )
 PROFILES = (
     TAYUTAMA_ZERO,
+    ENIGMA_PE32_1_31_DYNAMIC_BASE,
     EXHIBIT_DMM,
     EXHIBIT_DMM_TP02,
     DISC_CHECK_X86_V1,

@@ -248,14 +248,23 @@
 | `vm_table_offset` | `int` | `必填` | 引擎内VM表位置 |
 | `vm_table_count` | `int` | `必填` | VM表项总数 |
 | `payloads` | `tuple[PayloadSpec, ...]` | `必填` | 规定顺序的载荷规格集合 |
-| `dialog_index` | `int` | `9950` | 已验证分支VM索引 |
-| `dialog_destination` | `int` | `9954` | 预期分支目标索引 |
+| `dialog_index` | `int &#124; None` | `9950`；可为 `None` | 已验证分支VM索引；无此分支的版本必须与 `dialog_destination` 同时为 `None` |
+| `dialog_destination` | `int &#124; None` | `9954`；可为 `None` | 预期分支目标索引 |
 | `predicate_index` | `int` | `19155` | 原谓词VM索引 |
 | `true_index` | `int` | `339` | 复用真值指令索引 |
 | `ksa_index` | `int` | `18591` | 原KSA调用索引 |
 | `prga_index` | `int` | `18598` | 原PRGA调用索引 |
 | `ksa_operand` | `int` | `420004` | KSA预期原操作数 |
 | `prga_operand` | `int` | `419808` | PRGA预期原操作数 |
+| `predicate_record_offset` | `int` | 版本相关 | 原谓词 VM 记录在解压引擎中的偏移 |
+| `true_record_offset` | `int` | 版本相关 | 可复用真值 VM 记录在解压引擎中的偏移 |
+| `predicate_return_operand` | `int` | 版本相关 | 原谓词返回目标操作数 |
+| `native_call_target_type` | `int &#124; None` | `None` | 原生调用记录的寻址类型；设置后严格校验 |
+| `allow_dynamic_base` | `bool` | `False` | 是否允许该已验证版本使用 ASLR |
+| `runtime_capture_supported` | `bool` | `False` | 是否有精确的隔离运行时捕获适配 |
+| `dispatch_rva` | `int` | 版本相关 | 引擎 VM 调度入口相对地址 |
+| `dispatch_global_rva` | `int` | 版本相关 | 调度入口引用的引擎全局相对地址 |
+| `options_index` | `int` | 版本相关 | 载荷选项 VM 索引 |
 
 #### `NativeCallProfile`
 

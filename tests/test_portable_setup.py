@@ -205,7 +205,7 @@ def _verify_machine(mode):
 
     uc.hook_add(u.UC_HOOK_CODE, dispatch)
     if mode in ("path", "type", "key"):
-        raw = "X:\\便携目录\\テスト\\🧪\0".encode("utf-16-le")
+        raw = "便携目录\\テスト\\🧪\0".encode("utf-16-le")
         uc.mem_write(stack+0x3000, raw)
         put(BASE+spec.directory_object_rva, stack+0x3000, 0, 0, 0, len(raw)//2-1, 64)
         if mode == "key":

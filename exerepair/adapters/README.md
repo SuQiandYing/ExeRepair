@@ -162,6 +162,11 @@ OpenCL 1.2 GPU 筛选适配器，管理设备、缓冲区和句柄生命周期�
 | --- | --- |
 | `capture_context(original, game_root, profile, compressor, work_dir, timeout=60, progress=None) -> dict` | 创建和拥有临时探测进程；在超时内获取上下文，所有退出路径清理自身资源。 明确抛出：`RecoveryError`、`ctypes.WinError`。 |
 
+运行时脚本只接收已验证版本的偏移和索引配置，不接收文件路径。探测副本使用
+`work_dir` 下的临时目录，并只复制游戏根目录中相邻 DLL；捕获完成后由适配器终止并
+等待自己创建的进程。上下文通过一次 RPC 返回到内存，密钥和激活分量不会写入日志或清单。
+CModule 的停驻回调通过 Frida 的 stdcall `Sleep` 包装兼容 TinyCC，避免依赖固定调试地址。
+
 
 ## 子目录
 

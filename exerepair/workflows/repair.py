@@ -112,18 +112,21 @@ def patch_gate(engine: bytes, profile: RepairProfile) -> tuple[bytearray, list[d
         edits.append({"symbol": symbol, "engine_offset": hex(offset),
                       "expected_bytes": old.hex(), "replacement_bytes": new.hex()})
 
-    dialog = _instruction(decoded, profile, profile.dialog_index)
-    if struct.unpack_from("<I", decoded, dialog + 28)[0] != profile.dialog_destination:
-        raise RecoveryError("注册分支的原目标索引不匹配")
-    edit(dialog, struct.pack("<I", 0x2C), struct.pack("<I", 0x2B),
-         f"VM[{profile.dialog_index:#x}] JZ -> JMP")
+    if (profile.dialog_index is None) != (profile.dialog_destination is None):
+        raise RecoveryError("可选注册分支配置不完整")
+    if profile.dialog_index is not None:
+        dialog = _instruction(decoded, profile, profile.dialog_index)
+        if struct.unpack_from("<I", decoded, dialog + 28)[0] != profile.dialog_destination:
+            raise RecoveryError("注册分支的原目标索引不匹配")
+        edit(dialog, struct.pack("<I", 0x2C), struct.pack("<I", 0x2B),
+             f"VM[{profile.dialog_index:#x}] JZ -> JMP")
     predicate = _instruction(decoded, profile, profile.predicate_index)
     truth = _instruction(decoded, profile, profile.true_index)
-    if predicate != 0x73FCD2 or truth != 0x6C9E32:
+    if predicate != profile.predicate_record_offset or truth != profile.true_record_offset:
         raise RecoveryError("注册谓词及现有 MOV AL,1 指令地址不匹配")
     old_record = struct.pack(
         "<18I", 0x60, 0, 0, 0x8D, 0x28, 0, 0x202000, 0x184, 0x8F,
-        0, 0, 0x2000, 0x6BDF61, 0, 0, 0, 0x200000, 0,
+        0, 0, 0x2000, profile.predicate_return_operand, 0, 0, 0, 0x200000, 0,
     )
     if decoded[predicate:predicate + 72] != old_record:
         raise RecoveryError("待退休谓词 CALL 记录不匹配")
@@ -225,8 +228,9 @@ def build_repair(
     optional = pe_offset + 24
     optional_size = struct.unpack_from("<H", original, pe_offset + 20)[0]
     if pe.bitness != 32 or pe.image_base != 0x400000:
-        raise RecoveryError("修复配置要求 PE32 固定基址 0x400000")
-    if struct.unpack_from("<H", original, optional + 0x46)[0] & 0x40:
+        raise RecoveryError("修复配置要求 PE32 首选基址 0x400000")
+    if (struct.unpack_from("<H", original, optional + 0x46)[0] & 0x40
+            and not profile.allow_dynamic_base):
         raise RecoveryError("该 VM 原生调用适配不支持启用 ASLR 的样本")
     header = optional + optional_size + len(pe.sections) * 40
     if header + 40 > pe.size_of_headers or original[header:header + 40] != bytes(40):
@@ -247,6 +251,10 @@ def build_repair(
         instruction = _instruction(decoded, profile, index)
         if struct.unpack_from("<I", decoded, instruction)[0] != 0x60:
             raise RecoveryError("预期的 VM 原生 CALL opcode 不匹配")
+        if (profile.native_call_target_type is not None
+                and struct.unpack_from("<I", decoded, instruction + 12)[0]
+                != profile.native_call_target_type):
+            raise RecoveryError("VM 原生 CALL 的目标寻址类型不匹配")
         offset = instruction + 28
         old = struct.pack("<I", old_operand)
         if decoded[offset:offset + 4] != old:

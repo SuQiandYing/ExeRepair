@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,10 @@ from exerepair.workflows.native_discovery import (
 from exerepair.workflows.profiles import identify_profile
 
 
-TP03 = Path(r"E:\hosisoraTP_03\星空TeaParty第３話.exe")
+# Optional developer fixture.  Keep machine-specific locations out of the
+# source tree; callers can point at a local sample through an environment
+# variable when they have the matching authorized fixture.
+TP03 = Path(os.environ.get("EXEREPAIR_TP03_FIXTURE", "fixtures/tp03.exe"))
 
 
 @pytest.mark.skipif(not TP03.is_file(), reason="local native fixture is unavailable")

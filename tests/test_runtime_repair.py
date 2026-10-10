@@ -16,13 +16,15 @@ import zlib
 import pytest
 
 from exerepair.adapters.aplib import ARCHIVE_SHA256
+from exerepair.adapters.runtime_capture import _capture_config
 from exerepair.application import recovery
 from exerepair.application.recovery import RepairService, load_payload_manifest, save_payload_manifest
 from exerepair.domain.recovery import PayloadSpec, RecoveredPayload, RecoveryError, RepairProfile
 from exerepair.formats.enigma import PEImage, bcj_transform
-from exerepair.workflows.profiles import identify_profile
+from exerepair.workflows.profiles import ENIGMA_PE32_1_31_DYNAMIC_BASE, identify_profile
 from exerepair.workflows.repair import (
-    BuiltRepair, apply_binary_patch, helper_and_data, sha256, validate_payloads,
+    BuiltRepair, apply_binary_patch, helper_and_data, patch_gate, sha256,
+    validate_payloads,
 )
 from tests.helpers import make_pe
 
@@ -57,6 +59,107 @@ def patch_fixture():
         ],
     }
     return original, modified, patch
+
+
+def gate_fixture(*, with_dialog=False):
+    """Build a tiny decoded VM image for exact gate checks."""
+    table_offset = 0x100
+    predicate_offset = 0x200
+    true_offset = 0x248
+    dialog_offset = 0x290
+    table_count = 4
+    engine = bytearray(0x340)
+    old_predicate = struct.pack(
+        "<18I", 0x60, 0, 0, 0x8D, 0x28, 0, 0x202000, 0x184, 0x8F,
+        0, 0, 0x2000, 0x123456, 0, 0, 0, 0x200000, 0,
+    )
+    true_record = struct.pack(
+        "<18I", 0x52, 0, 0, 0x8C, 1, 0, 0x200800, 0, 0x8F,
+        0, 0, 0x200800, 1, 0, 0, 0, 0x200000, 0,
+    )
+    engine[predicate_offset:predicate_offset + 72] = old_predicate
+    engine[true_offset:true_offset + 72] = true_record
+    struct.pack_into("<II", engine, table_offset + 4, predicate_offset, true_offset)
+    if with_dialog:
+        struct.pack_into("<I", engine, table_offset, dialog_offset)
+        struct.pack_into("<I", engine, dialog_offset, 0x2C)
+        struct.pack_into("<I", engine, dialog_offset + 28, 3)
+    profile = RepairProfile(
+        "synthetic-gate", sha256(bytes(engine)), len(engine), sha256(bytes(engine)),
+        0, table_offset, table_count, (),
+        dialog_index=0 if with_dialog else None,
+        dialog_destination=3 if with_dialog else None,
+        predicate_index=1, true_index=2,
+        predicate_record_offset=predicate_offset,
+        true_record_offset=true_offset,
+        predicate_return_operand=0x123456,
+    )
+    return bytes(engine), profile
+
+
+def test_patch_gate_supports_verified_no_dialog_build():
+    engine, profile = gate_fixture()
+    changed, edits = patch_gate(engine, profile)
+    assert changed[profile.vm_table_offset + profile.predicate_index * 4:
+                   profile.vm_table_offset + profile.predicate_index * 4 + 4] == struct.pack(
+                       "<I", profile.true_record_offset
+                   )
+    assert any("retire sole-referenced" in row["symbol"] for row in edits)
+    assert not any("JZ -> JMP" in row["symbol"] for row in edits)
+
+
+def test_patch_gate_preserves_legacy_dialog_branch_when_configured():
+    engine, profile = gate_fixture(with_dialog=True)
+    _changed, edits = patch_gate(engine, profile)
+    assert any("JZ -> JMP" in row["symbol"] for row in edits)
+
+
+@pytest.mark.parametrize("damage", ["optional", "predicate-address", "truth-bytes", "duplicate"])
+def test_patch_gate_rejects_inexact_gate_evidence(damage):
+    engine, profile = gate_fixture()
+    if damage == "optional":
+        profile = replace(profile, dialog_index=None, dialog_destination=3)
+    elif damage == "predicate-address":
+        profile = replace(profile, predicate_record_offset=0x204)
+    elif damage == "truth-bytes":
+        broken = bytearray(engine)
+        broken[profile.true_record_offset + 4] ^= 1
+        engine = bytes(broken)
+        profile = replace(profile, engine_sha256=sha256(engine))
+    else:
+        broken = bytearray(engine)
+        struct.pack_into("<I", broken, profile.vm_table_offset + 12, profile.predicate_record_offset)
+        engine = bytes(broken)
+        profile = replace(profile, engine_sha256=sha256(engine))
+    with pytest.raises(RecoveryError):
+        patch_gate(engine, profile)
+
+
+def test_build_repair_rejects_aslr_before_compression_for_legacy_profile():
+    original = make_pe(32)
+    optional = struct.unpack_from("<I", original, 0x3C)[0] + 24
+    struct.pack_into("<I", original, optional + 0x1C, 0x400000)
+    struct.pack_into("<II", original, optional + 0x20, 0x1000, 0x200)
+    struct.pack_into("<II", original, optional + 0x38, 0x2000, 0x200)
+    struct.pack_into("<H", original, optional + 0x46, 0x40)
+    data = bytes(original)
+    profile = RepairProfile(
+        "legacy-aslr", sha256(data), len(data), "", 0, 0, 0, (),
+    )
+    with pytest.raises(RecoveryError, match="ASLR"):
+        from exerepair.workflows.repair import build_repair
+        build_repair(data, profile, (), lambda _: pytest.fail("compressor called"))
+
+
+def test_capture_config_is_offset_only_and_exact_profile_gated():
+    config = _capture_config(ENIGMA_PE32_1_31_DYNAMIC_BASE)
+    assert config["engineBaseDelta"] == ENIGMA_PE32_1_31_DYNAMIC_BASE.engine_base_delta
+    assert config["dispatchRVA"] == ENIGMA_PE32_1_31_DYNAMIC_BASE.dispatch_rva
+    assert config["nativeTargetType"] == 0x90
+    assert not any(isinstance(value, str) and (":" in value or "\\" in value)
+                   for value in config.values())
+    with pytest.raises(RecoveryError, match="尚无经过验证"):
+        _capture_config(replace(ENIGMA_PE32_1_31_DYNAMIC_BASE, runtime_capture_supported=False))
 
 
 @pytest.mark.parametrize("data", [

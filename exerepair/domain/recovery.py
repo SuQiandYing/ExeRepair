@@ -29,14 +29,23 @@ class RepairProfile:
     vm_table_offset: int
     vm_table_count: int
     payloads: tuple[PayloadSpec, ...]
-    dialog_index: int = 0x26DE
-    dialog_destination: int = 0x26E2
+    dialog_index: int | None = 0x26DE
+    dialog_destination: int | None = 0x26E2
     predicate_index: int = 0x4AD3
     true_index: int = 0x153
     ksa_index: int = 0x489F
     prga_index: int = 0x48A6
     ksa_operand: int = 0x668A4
     prga_operand: int = 0x667E0
+    predicate_record_offset: int = 0x73FCD2
+    true_record_offset: int = 0x6C9E32
+    predicate_return_operand: int = 0x6BDF61
+    native_call_target_type: int | None = None
+    allow_dynamic_base: bool = False
+    runtime_capture_supported: bool = False
+    dispatch_rva: int = 0x156B36
+    dispatch_global_rva: int = 0x1DC8A8
+    options_index: int = 0x486F
 
 
 @dataclass(frozen=True, slots=True)

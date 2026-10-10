@@ -11,6 +11,7 @@
 | [NATIVE_CALL_REPAIR.md](NATIVE_CALL_REPAIR.md) | 调用保护检查、跳板、重定位与容器迁移 |
 | [DISC_CHECK_REPAIR.md](DISC_CHECK_REPAIR.md) | 光盘与安装目录兼容、Unicode 字符串契约、保护及验证边界 |
 | [REPAIR_WORKFLOWS.md](REPAIR_WORKFLOWS.md) | 流程选择、参数契约与验证步骤 |
+| [ENIGMA_PE32_1_31_COMPAT.md](ENIGMA_PE32_1_31_COMPAT.md) | PE32 Enigma 1.31 动态基址配置的运行时捕获、载荷恢复和验证边界 |
 
 ## 维护约定
 

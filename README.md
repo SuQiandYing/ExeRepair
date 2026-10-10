@@ -62,6 +62,23 @@ Unicode EXE 所在目录，不写入安装注册表，也不依赖启动时的�
 旧式 ANSI 注册表分派配置有不同的编码与工作目录限制，不能与此方案混用。
 兼容处理不补齐资源、不迁移存档，也不替代普通启动和区域模拟启动的实际验收。
 
+### 已验证的 PE32 Enigma 1.31 配置
+
+该配置通过完整输入 SHA-256 识别，兼容路径使用解压引擎内的谓词记录、原生 KSA/PRGA
+调用和运行时调度守卫。该配置没有旧式单独的注册分支，
+因此 `dialog_index` 与 `dialog_destination` 均为空；工具只退休唯一引用的谓词记录，
+并把恢复后的载荷复制到新 PE 节。运行时捕获在隔离副本中完成，随后用每个载荷的 CRC32
+和 SHA-256 重建修复副本。配置拒绝其他摘要、错误记录地址、错误原生寻址类型以及不匹配的
+ASLR 约束。示例命令只使用相对路径：
+
+```powershell
+python -m exerepair .\game\TARGET.exe -o .\output\TARGET_crack.exe `
+  --work-dir .\.exerepair\target
+```
+
+已有恢复清单时可用 `--recovery-manifest .\.exerepair\target\recovered-payloads.json`
+跳过捕获和搜索；清单会在重放前重新计算每个文件的 CRC32 与 SHA-256。
+
 ## 快速使用
 
 以下命令中的文件名及相对目录是示例输入，应替换为实际文件。
