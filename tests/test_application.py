@@ -42,6 +42,28 @@ def test_service_returns_immutable_load_and_result_objects(tmp_path) -> None:
     assert (output / "wrapped.exe").is_file()
 
 
+def test_extraction_keeps_output_name_and_copies_matching_config_sidecars(
+    tmp_path,
+) -> None:
+    path = _wrapper(tmp_path)
+    config = tmp_path / "game.cf"
+    signature = tmp_path / "game.cf.sig"
+    config.write_bytes(b"configuration")
+    signature.write_bytes(b"signature")
+    destination = tmp_path / "renamed_crack.exe"
+
+    result = ContainerService().extract(
+        path, ExtractionOptions(output_exe=destination)
+    )
+
+    assert result.success
+    assert destination.is_file()
+    assert (tmp_path / "renamed_crack.cf").read_bytes() == b"configuration"
+    assert (tmp_path / "renamed_crack.cf.sig").read_bytes() == b"signature"
+    assert config.read_bytes() == b"configuration"
+    assert signature.read_bytes() == b"signature"
+
+
 def test_service_uses_typed_error_codes(tmp_path) -> None:
     try:
         ContainerService().load(tmp_path / "missing.exe")

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Callable
 
 from ..adapters.filesystem import FileSystem, LocalFileSystem
-from ..domain.models import PatchMode, PatchRecord
+from ..domain.models import ContainerFlags, PatchMode, PatchRecord
 from ..domain.paths import join_relative, safe_relative_parts
 from .loader import LoadedProgram
 from .results import (
@@ -99,6 +99,16 @@ class ProgramExtractor:
                 )
 
         try:
+            self._copy_companion_config(program, destination)
+        except OSError as error:
+            return ExtractionResult(
+                False,
+                output,
+                tuple(failures),
+                f"无法复制主程序配置文件: {error}",
+            )
+
+        try:
             self.filesystem.write_bytes(destination, executable)
         except OSError as error:
             return ExtractionResult(
@@ -108,6 +118,45 @@ class ProgramExtractor:
                 f"无法写入主程序: {error}",
             )
         return ExtractionResult(not failures, output, tuple(failures))
+
+    def _copy_companion_config(
+        self,
+        program: LoadedProgram,
+        destination: Path,
+    ) -> None:
+        configured = bool(
+            program.stub.config.mode
+            & (
+                ContainerFlags.UseExecutableFileNameArgument
+                | ContainerFlags.ExecutableFileNotPack
+            )
+        )
+        parts = safe_relative_parts(program.stub.executable_file_name)
+        if not configured or parts is None or len(parts) != 1:
+            return
+
+        embedded = PureWindowsPath(parts[0])
+        if embedded.suffix.casefold() != ".exe":
+            return
+
+        source_config = program.source_directory / f"{embedded.stem}.cf"
+        if not self.filesystem.is_file(source_config):
+            return
+
+        output_config = destination.with_suffix(".cf")
+        same_location = (
+            embedded.stem.casefold() == destination.stem.casefold()
+            and source_config.parent.resolve() == output_config.parent.resolve()
+        )
+        if same_location:
+            return
+
+        self.filesystem.copy_file(source_config, output_config)
+
+        source_signature = source_config.with_name(source_config.name + ".sig")
+        if self.filesystem.is_file(source_signature):
+            output_signature = output_config.with_name(output_config.name + ".sig")
+            self.filesystem.copy_file(source_signature, output_signature)
 
     @staticmethod
     def _destination(

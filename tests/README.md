@@ -7,7 +7,7 @@
 
 | 文件 | 验证功能 |
 | --- | --- |
-| `test_application.py` | 加载/结果对象、类型化错误、服务接口 |
+| `test_application.py` | 加载/结果对象、类型化错误、服务接口、匹配输出名的 `.cf`/`.cf.sig` 伴随文件复制 |
 | `test_architecture.py` | 领域、安全、格式和应用层的依赖方向 |
 | `test_cli.py` | 退出码、输出、目标单文件路由、显式选项 |
 | `test_crypto.py` | CRC 参考值、序列参考向量、XOR 往返 |
