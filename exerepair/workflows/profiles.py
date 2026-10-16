@@ -10,8 +10,8 @@ from ..domain.recovery import (
 from .native_discovery import discover_native_static
 
 
-TAYUTAMA_ZERO = RepairProfile(
-    name="tayutama-zero-dl-enigma-1.31",
+ENIGMA_PE32_ZERO = RepairProfile(
+    name="enigma-pe32-1.31-zero-payload",
     baseline_sha256="a94e0f2a34c365f6238e6734e6bf9cb5574560c2bd26faacf1b826c49e7658f1",
     baseline_size=4116480,
     engine_sha256="83d225829cea4dc9b0e73329a2ddedae538cdfef196f1a243d5fdb7fb3fee5fa",
@@ -70,8 +70,8 @@ ENIGMA_PE32_1_31_DYNAMIC_BASE = RepairProfile(
                     "2fe38b5e8a1874b848fe7aa31ec8fca2543dc49e6cd4331d1f6b723ee0476da2"),
     ),
 )
-EXHIBIT_DMM = NativeCallProfile(
-    name="exhibit-hoshizora-tp01-dmm-enigma-1.31",
+NATIVE_CALL_X86_V1 = NativeCallProfile(
+    name="native-call-x86-v1-enigma-1.31",
     baseline_sha256="a903a9d97b62d3d52fb62a1f648f836384b41dd089afd967808ab8f7808a2a82",
     baseline_size=3186688,
     engine_sha256="06635a974b4818d93bedd02f0d2422d56b38ca6140dcde014841fc34aec9557e",
@@ -85,8 +85,8 @@ EXHIBIT_DMM = NativeCallProfile(
     bootstrap_size_offsets=(121, 196),
     bootstrap_source_offsets=(126, 201),
 )
-EXHIBIT_DMM_TP02 = NativeCallProfile(
-    name="exhibit-hoshizora-tp02-dmm-enigma-1.31",
+NATIVE_CALL_X86_V2 = NativeCallProfile(
+    name="native-call-x86-v2-enigma-1.31",
     baseline_sha256="fd3d7901556afc9d82afa23103a05ab2e81050dabeae2e2ed164b345d642c339",
     baseline_size=6483968,
     engine_sha256="756b5c0a14107f47b298f5ac6a5ef526dc30da682cf082cd671dade0ed9e3381",
@@ -187,13 +187,36 @@ DISC_CHECK_X86_V2 = DiscCheckProfile(
         assign_text=(0x2450, bytes.fromhex("558bec578bf8")),
     ),
 )
+DISC_CHECK_X86_STATIC_LANGUAGE = DiscCheckProfile(
+    name="disc-check-x86-static-language-v1",
+    baseline_sha256="251c57cecde9613a5da9f3e9a99c23e1a47019f9efacbbf83e215dad829fa2f9",
+    baseline_size=7666688,
+    image_base=0x400000,
+    entry_rva=0x2C0A3F,
+    entry_bytes=bytes.fromhex(
+        "e8b4c80000e97ffeffff558bec568b75"
+    ),
+    module_image_size=0x4A8D000,
+    caller_return_rva=0,
+    caller_guard=b"",
+    return_rva=0,
+    return_guard=b"",
+    success_flag_rva=0,
+    # The main-image language gate returns false and displays a modal
+    # region message.  The replacement is a position-independent scalar
+    # return and remains valid when the PE is relocated.
+    static_patch_sites=(
+        (0x15FF20, bytes.fromhex("558bec"), bytes.fromhex("b001c3")),
+    ),
+)
 PROFILES = (
-    TAYUTAMA_ZERO,
+    ENIGMA_PE32_ZERO,
     ENIGMA_PE32_1_31_DYNAMIC_BASE,
-    EXHIBIT_DMM,
-    EXHIBIT_DMM_TP02,
+    NATIVE_CALL_X86_V1,
+    NATIVE_CALL_X86_V2,
     DISC_CHECK_X86_V1,
     DISC_CHECK_X86_V2,
+    DISC_CHECK_X86_STATIC_LANGUAGE,
 )
 
 

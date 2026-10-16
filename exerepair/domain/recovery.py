@@ -125,6 +125,9 @@ class DiscCheckProfile:
     registry_ready_bytes: bytes = b""
     allow_dynamic_base_without_relocations: bool = False
     portable_setup: PortableSetupProfile | None = None
+    # Static process-independent patches for checks that execute in the main
+    # image before any late-loaded validation module is materialized.
+    static_patch_sites: tuple[tuple[int, bytes, bytes], ...] = ()
     payloads: tuple[PayloadSpec, ...] = field(default=(), init=False)
 
 

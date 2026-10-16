@@ -14,7 +14,7 @@ from exerepair.domain.recovery import RecoveryError
 from exerepair.workflows.native_repair import (
     _retire_dispatch_relocation, build_native_repair, native_trampoline,
 )
-from exerepair.workflows.profiles import EXHIBIT_DMM, EXHIBIT_DMM_TP02
+from exerepair.workflows.profiles import NATIVE_CALL_X86_V1, NATIVE_CALL_X86_V2
 from exerepair.workflows.repair import BuiltRepair, sha256
 from tests.helpers import make_pe
 
@@ -23,7 +23,7 @@ def _verify_native_guard(mismatch, target="tp01"):
     import unicorn
     from unicorn import x86_const as r
 
-    profile = EXHIBIT_DMM_TP02 if target == "tp02" else EXHIBIT_DMM
+    profile = NATIVE_CALL_X86_V2 if target == "tp02" else NATIVE_CALL_X86_V1
     base, helper_rva = 0x400000, 0x970000
     helper = base+helper_rva
     continuation = base+profile.engine_base_delta+profile.dispatch_rva+5
@@ -82,7 +82,7 @@ def test_native_trampoline_exact_guard_and_register_flag_preservation(mismatch, 
 
 def test_trampoline_rejects_unbound_call_shape():
     with pytest.raises(RecoveryError, match="保护字节"):
-        native_trampoline(replace(EXHIBIT_DMM, guard_bytes=b"\0"*10),0x400000,0x964000)
+        native_trampoline(replace(NATIVE_CALL_X86_V1, guard_bytes=b"\0"*10),0x400000,0x964000)
 
 
 def relocation_fixture():
@@ -90,7 +90,7 @@ def relocation_fixture():
     struct.pack_into("<I",data,0x3C,0x80)
     struct.pack_into("<I",data,0x80+24+96+5*8,0x300)
     struct.pack_into("<IIHH",data,0x300,0x133000,12,0x3AFF,0)
-    profile = replace(EXHIBIT_DMM, relocation_offset=0x308)
+    profile = replace(NATIVE_CALL_X86_V1, relocation_offset=0x308)
     return data, SimpleNamespace(rva_to_offset=lambda rva:rva), profile
 
 
@@ -119,7 +119,7 @@ def test_wrong_relocation_is_not_silently_retired(damage):
 def test_native_builder_rejects_other_build_without_loading_compressor():
     called = []
     with pytest.raises(RecoveryError, match="身份"):
-        build_native_repair(b"another-build",EXHIBIT_DMM,lambda data:called.append(data))
+        build_native_repair(b"another-build",NATIVE_CALL_X86_V1,lambda data:called.append(data))
     assert not called
 
 
@@ -135,7 +135,7 @@ def test_native_builder_checks_pe_constraints_before_engine_processing(damage):
     elif damage == "aslr":
         struct.pack_into("<H",data,optional+0x46,0x40)
     original = bytes(data)
-    profile = replace(EXHIBIT_DMM,baseline_sha256=sha256(original),
+    profile = replace(NATIVE_CALL_X86_V1,baseline_sha256=sha256(original),
                       baseline_size=len(original),guard_rva=0x1010,call_rva=0x1015)
     with pytest.raises(RecoveryError):
         build_native_repair(original,profile,lambda _:pytest.fail("compressor was called"))
@@ -143,7 +143,7 @@ def test_native_builder_checks_pe_constraints_before_engine_processing(damage):
 
 def test_native_service_uses_static_branch_and_common_transaction(tmp_path,monkeypatch):
     original = b"native-build"
-    profile = replace(EXHIBIT_DMM,baseline_sha256=sha256(original),baseline_size=len(original))
+    profile = replace(NATIVE_CALL_X86_V1,baseline_sha256=sha256(original),baseline_size=len(original))
     source, output = tmp_path/"original.exe", tmp_path/"output.exe"
     source.write_bytes(original)
     monkeypatch.setattr(recovery,"identify_profile",lambda _:profile)
@@ -182,7 +182,7 @@ def test_cli_native_inspection_does_not_advertise_payload_search(tmp_path,monkey
 
     class Service:
         def inspect(self, _):
-            return SimpleNamespace(profile=EXHIBIT_DMM)
+            return SimpleNamespace(profile=NATIVE_CALL_X86_V1)
 
         def repair(self, *args, **kwargs):
             pytest.fail("inspection must not repair or spawn")
@@ -203,7 +203,7 @@ def test_gui_native_inspection_has_correct_workflow_and_method(tmp_path):
 
     class Service:
         def inspect(self, path):
-            return RepairInspection(path,EXHIBIT_DMM,1,0x400000,0x2000,7)
+            return RepairInspection(path,NATIVE_CALL_X86_V1,1,0x400000,0x2000,7)
 
     controller = ConsoleController(repair_service=Service())
     controller.begin_load(source)

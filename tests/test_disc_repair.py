@@ -59,6 +59,24 @@ def test_builder_preserves_original_sections_and_replays_standard_diff():
     assert built.report["helper_layout"]["hook_offset"] == 0x400
 
 
+def test_static_disc_profile_patches_main_image_without_new_sections():
+    original, profile = fixture()
+    static = replace(
+        profile,
+        name="synthetic-static-disc",
+        static_patch_sites=((0x1001, original[0x401:0x404], b"\xb0\x01\xc3"),),
+    )
+    built = build_disc_repair(original, static)
+    pe = PEImage.parse(built.data)
+    assert len(built.data) == len(original)
+    assert [s.name for s in pe.sections] == [".text"]
+    assert built.data[0x401:0x404] == b"\xb0\x01\xc3"
+    assert apply_binary_patch(original, built.patch) == built.data
+    assert built.report["strategy"] == "static-disc-check"
+    assert built.report["static_patch_sites"][0]["rva"] == "0x1001"
+    assert built.report["helper_size"] == 0
+
+
 @pytest.mark.parametrize("damage",[
     "hash","size","base","aslr","entry","slot","signature","alignment","image","nonexecute",
 ])

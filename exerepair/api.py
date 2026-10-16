@@ -25,7 +25,7 @@ from .domain.recovery import (
     RepairInspection,
     RepairResult,
 )
-from .workflows.profiles import EXHIBIT_DMM_TP02
+from .workflows.profiles import NATIVE_CALL_X86_V2
 
 __all__ = [
     "ErrorCode",
@@ -44,7 +44,7 @@ __all__ = [
     "DiscCheckProfile",
     "NativeCallProfile",
     "PortableSetupProfile",
-    "EXHIBIT_DMM_TP02",
+    "NATIVE_CALL_X86_V2",
     "RecoveryError",
     "RepairInspection",
     "RepairResult",

@@ -11,7 +11,7 @@ from exerepair.ui.viewmodel import (
 from exerepair.domain.models import ContainerFlags
 from tests.helpers import make_embedded_wrapper, make_pe, make_stub
 from exerepair.domain.recovery import RepairInspection
-from exerepair.workflows.profiles import TAYUTAMA_ZERO
+from exerepair.workflows.profiles import ENIGMA_PE32_ZERO
 from types import SimpleNamespace
 
 
@@ -70,7 +70,7 @@ def test_controller_target_only_flow_respects_custom_output(tmp_path) -> None:
 
     class FakeRepairService:
         def inspect(self, path):
-            return RepairInspection(Path(path), TAYUTAMA_ZERO, 1, 0x400000, 4096, 13)
+            return RepairInspection(Path(path), ENIGMA_PE32_ZERO, 1, 0x400000, 4096, 13)
 
         def repair(self, target, destination, **options):
             calls.append((target, destination, options))

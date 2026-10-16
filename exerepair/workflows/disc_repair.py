@@ -52,6 +52,31 @@ class _X86:
 
 
 def _validate_profile(profile: DiscCheckProfile) -> None:
+    if profile.static_patch_sites:
+        if (
+            profile.region_patch_sites
+            or profile.setup_patch_sites
+            or profile.registry_open_slot_rva is not None
+            or profile.registry_query_slot_rva is not None
+            or profile.registry_ready_rva is not None
+            or profile.portable_setup is not None
+        ):
+            raise RecoveryError("静态检查配置不能混用运行时兼容分派")
+        if not profile.entry_bytes:
+            raise RecoveryError("静态检查配置缺少入口保护字节")
+        if not 0x1000 <= profile.module_image_size <= 0x10000000:
+            raise RecoveryError("静态检查映像范围无效")
+        ranges: list[tuple[int, int]] = []
+        for rva, expected, replacement in profile.static_patch_sites:
+            if len(expected) != len(replacement) or not expected:
+                raise RecoveryError("静态检查补丁长度无效")
+            if not 0x1000 <= rva <= profile.module_image_size-len(expected):
+                raise RecoveryError("静态检查补丁地址越界")
+            end = rva + len(expected)
+            if any(rva < other_end and other < end for other, other_end in ranges):
+                raise RecoveryError("静态检查补丁范围重叠")
+            ranges.append((rva, end))
+        return
     if (not profile.entry_bytes or len(profile.caller_guard) < 10 or
             profile.return_guard != bytes.fromhex("8b45e88b4df464890d000000008be55dc3")):
         raise RecoveryError("光盘检查配置的完整保护字节无效")
@@ -797,8 +822,124 @@ def disc_helper(
     }
 
 
+def _build_static_disc_repair(
+    original: bytes, profile: DiscCheckProfile,
+) -> BuiltRepair:
+    """Apply verified position-independent bytes in the main PE image.
+
+    This path is for checks that run before a late-loaded validation module
+    exists.  It keeps the PE layout unchanged, so normal relocations and ASLR
+    remain valid.
+    """
+    _validate_profile(profile)
+    if sha256(original) != profile.baseline_sha256 or len(original) != profile.baseline_size:
+        raise RecoveryError("原始样本身份不匹配")
+    try:
+        pe = PEImage.parse(original)
+        nt = struct.unpack_from("<I", original, 0x3C)[0]
+        optional = nt + 24
+        optional_size = struct.unpack_from("<H", original, nt + 20)[0]
+        if pe.bitness != 32 or pe.image_base != profile.image_base or optional_size < 0xE0:
+            raise RecoveryError("静态检查配置要求匹配 PE32 映像")
+        if any(struct.unpack_from("<II", original, optional + 96 + 4 * 8)):
+            raise RecoveryError("不修改带有数字签名的输入")
+        entry_offset = pe.rva_to_offset(profile.entry_rva)
+        if (
+            pe.entry_rva != profile.entry_rva
+            or original[entry_offset:entry_offset + len(profile.entry_bytes)]
+            != profile.entry_bytes
+        ):
+            raise RecoveryError("静态检查入口保护字节不匹配")
+        if not pe.section_for_rva(profile.entry_rva).characteristics & 0x20000000:
+            raise RecoveryError("静态检查入口不在可执行节中")
+        for rva, expected, _replacement in profile.static_patch_sites:
+            section = pe.section_for_rva(rva)
+            if not section.characteristics & 0x20000000:
+                raise RecoveryError("静态检查补丁不在可执行节中")
+            offset = pe.rva_to_offset(rva)
+            if original[offset:offset + len(expected)] != expected:
+                raise RecoveryError(f"静态检查原字节不匹配：RVA {rva:#x}")
+        modified = bytearray(original)
+        layout_sites = []
+        for rva, expected, replacement in profile.static_patch_sites:
+            offset = pe.rva_to_offset(rva)
+            modified[offset:offset + len(replacement)] = replacement
+            layout_sites.append({
+                "rva": hex(rva),
+                "file_offset": hex(offset),
+                "expected": expected.hex(),
+                "replacement": replacement.hex(),
+            })
+    except (ValueError, struct.error, OverflowError) as error:
+        if isinstance(error, RecoveryError):
+            raise
+        raise RecoveryError(f"静态检查 PE 构建失败：{error}") from error
+
+    edits = []
+    start = 0
+    while start < len(original):
+        if original[start] == modified[start]:
+            start += 1
+            continue
+        end = start + 1
+        while end < len(original) and original[end] != modified[end]:
+            end += 1
+        edits.append({
+            "offset": start,
+            "length": end - start,
+            "replacement_base64": base64.b64encode(modified[start:end]).decode("ascii"),
+        })
+        start = end
+    patch = {
+        "format": "seep.binary-patch.v2",
+        "baseline_sha256": profile.baseline_sha256,
+        "modified_sha256": sha256(modified),
+        "length": len(original),
+        "modified_length": len(modified),
+        "edits": edits,
+    }
+    if apply_binary_patch(original, patch) != bytes(modified):
+        raise RecoveryError("静态检查补丁重放失败")
+    dynamic_base = bool(struct.unpack_from("<H", original, optional + 0x46)[0] & 0x40)
+    reloc_rva, reloc_size = struct.unpack_from("<II", original, optional + 96 + 5 * 8)
+    return BuiltRepair(bytes(modified), patch, {
+        "profile": profile.name,
+        "strategy": "static-disc-check",
+        "baseline_sha256": profile.baseline_sha256,
+        "modified_sha256": sha256(modified),
+        "changed_symbol": "; ".join(
+            f"RVA {site['rva']} {site['expected']} -> {site['replacement']}"
+            for site in layout_sites
+        ),
+        "static_patch_sites": layout_sites,
+        "caller_return_rva": None,
+        "caller_guard": "",
+        "return_rva": None,
+        "return_guard": "",
+        "replacement_hex": ";".join(site["replacement"] for site in layout_sites),
+        "success_flag_rva": None,
+        "helper_rva": None,
+        "helper_size": 0,
+        "state_rva": None,
+        "original_entry_rva": hex(pe.entry_rva),
+        "helper_layout": {},
+        "original_packed_sections_unchanged": False,
+        "patch_replay_verified": True,
+        "new_rwx_sections": False,
+        "activation_component_written": False,
+        "key_search_performed": False,
+        "runtime_launch_verified": False,
+        "dynamic_base_flag": dynamic_base,
+        "preferred_base_required": False,
+        "relocations_present": bool(reloc_rva or reloc_size),
+        "runtime_api_entry_required": None,
+    })
+
+
 def build_disc_repair(original: bytes, profile: DiscCheckProfile) -> BuiltRepair:
     """Generate a separate PE copy and v2 patch; never launch or access files."""
+    if profile.static_patch_sites:
+        return _build_static_disc_repair(original, profile)
     _validate_profile(profile)
     if sha256(original) != profile.baseline_sha256 or len(original) != profile.baseline_size:
         raise RecoveryError("原始样本身份不匹配")

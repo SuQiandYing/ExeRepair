@@ -7,7 +7,7 @@ from exerepair.domain.models import ContainerFlags
 from tests.helpers import make_embedded_wrapper, make_pe, make_stub
 from types import SimpleNamespace
 from exerepair import cli
-from exerepair.workflows.profiles import TAYUTAMA_ZERO
+from exerepair.workflows.profiles import ENIGMA_PE32_ZERO
 
 
 def _wrapper(tmp_path: Path) -> Path:
@@ -45,7 +45,7 @@ def test_cli_target_only_route_and_explicit_options(tmp_path, monkeypatch, capsy
 
     class FakeService:
         def inspect(self, path):
-            return SimpleNamespace(profile=TAYUTAMA_ZERO)
+            return SimpleNamespace(profile=ENIGMA_PE32_ZERO)
 
         def repair(self, target, destination, **options):
             calls.append((target, destination, options))
