@@ -276,7 +276,7 @@
 | `engine_sha256` | `str` | `必填` | 解压引擎预期SHA256 |
 | `engine_base_delta` | `int` | `必填` | 引擎相对主映像基址偏移 |
 | `dispatch_rva` | `int` | `必填` | 原引擎调度入口位置 |
-| `dispatch_global_rva` | `int` | `必填` | 迁移MOV引用的全局位置 |
+| `dispatch_global_rva` | `int` | `必填` | 修改 MOV 引用的全局位置 |
 | `relocation_offset` | `int` | `必填` | 需验证并退休的引擎重定位记录位置 |
 | `guard_rva` | `int` | `必填` | 十字节运行保护条件起点 |
 | `call_rva` | `int` | `必填` | 目标原生调用地址 |

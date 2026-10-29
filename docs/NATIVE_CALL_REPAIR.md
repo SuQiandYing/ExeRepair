@@ -25,14 +25,14 @@ python -m exerepair TARGET.exe -o .\output\OUTPUT.exe
 1. 使用参数中的 RVA 定位调用与保护范围，区分 RVA 和文件偏移。
 2. 跳板保存通用寄存器及 EFLAGS，比较完整保护字节。
 3. 匹配时编辑调用位置；不匹配时不写入该位置。
-4. 恢复现场，重放迁移指令，返回原控制流。
+4. 恢复现场，重放相关指令，返回原控制流。
 
 栈清理和资源释放沿用原程序路径。
-原引擎调度位置使用相对跳转连接跳板；迁移指令关联的 HIGHLOW
+原引擎调度位置使用相对跳转连接跳板；相关指令关联的 HIGHLOW
 重定位记录按所在块、位置与目标 RVA 校验后处理。
 构建检查固定映像基址、PE32、ASLR 状态和调用所在节的可写属性。
 
-## 容器迁移
+## 容器重建
 
 引擎编辑完成后执行 BCJ 重编码、aPLib 压缩与重解压比较。
 构建器追加两个节，将跳板和重新封装的引擎分开存放：
@@ -48,7 +48,7 @@ python -m exerepair TARGET.exe -o .\output\OUTPUT.exe
 
 ## 验证与发布
 
-`build_native_repair()` 检查摘要、保护范围、迁移指令、重定位块、
+`build_native_repair()` 检查摘要、保护范围、相关指令、重定位块、
 引导参数、节表空间、编码往返、压缩往返和引擎重提取。
 最后重放差异，要求候选字节完全一致。
 
@@ -62,7 +62,7 @@ python -m exerepair TARGET.exe -o .\output\OUTPUT.exe
 | `workflows/profiles.py` | 输入匹配 |
 | `workflows/native_discovery.py` | Enigma 结构发现、证据绑定和摘要缓存 |
 | `adapters/native_discovery.py` | 临时副本运行时定位与清理 |
-| `workflows/native_repair.py` | 跳板、重定位、容器迁移和重放 |
+| `workflows/native_repair.py` | 跳板、重定位、容器重建和重放 |
 | `application/recovery.py` | 分流、输出发布和回滚 |
 | `cli.py`、`ui/viewmodel.py` | 操作入口和结果呈现 |
 | `tests/test_native_repair.py` | 保护字节、寄存器、栈与流程回归 |

@@ -56,7 +56,7 @@ def literal_stream(plain: bytes) -> bytes:
     return bytes(result)
 
 
-def test_rust_algorithm_vectors() -> None:
+def test_enigma_algorithm_vectors() -> None:
     seed = bytes.fromhex("0d961f3742a264754b33b15078ac40e4")
     key = section_key(seed, 0x17E9532F)
     assert key[16:].hex() == "9e8bd381a281e4fd0c934dc36fb738e6"

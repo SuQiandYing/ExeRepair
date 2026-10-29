@@ -1,8 +1,7 @@
 """Portable primitives shared by the Enigma unpacking formats.
 
-The Rust implementation keeps these routines independent from the Loader
-instruction interpreter. The Python port follows the same boundary so that
-configuration and EVB parsing can be used without importing optional runtime
+These routines stay independent from the Loader instruction interpreter.
+Configuration and EVB parsing can use them without importing optional runtime
 or GPU dependencies.
 """
 

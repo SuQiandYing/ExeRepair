@@ -68,7 +68,7 @@ class Configuration:
 
     @property
     def ctx(self) -> bytes | None:
-        """Rust-compatible spelling for the serialized Loader context."""
+        """Alias for the serialized Loader context."""
 
         return self.context
 
@@ -375,11 +375,10 @@ def search_salt(
     backend: str = "cpu",
     progress: Callable[[int], None] | None = None,
 ) -> int | None:
-    """Search the 32-bit section salt with the Rust verification order.
+    """Search the 32-bit section salt with complete section verification.
 
-    The pure Python backend is intended for bounded ranges and correctness
-    checks. Existing NumPy/Numba/OpenCL adapters may still be used by the
-    runtime recovery workflow for large ranges.
+    The bounded exact backend is intended for small ranges and correctness
+    checks. The accelerated adapters can be used for larger ranges.
     """
 
     if backend not in ("cpu", "auto"):

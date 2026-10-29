@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from ..formats.enigma import EnigmaFormatError
 from ..formats.enigma_unpack import (
     StoredSection,
-    search_salt as python_search_salt,
+    search_salt as exact_search_salt,
     verify_sections,
 )
 
@@ -33,14 +33,14 @@ def _screen_section(sections: Sequence[StoredSection]) -> StoredSection | None:
     return min(candidates, key=lambda section: len(section.ciphertext), default=None)
 
 
-def _python_fallback(
+def _exact_fallback(
     sections: Sequence[StoredSection],
     start: int,
     count: int,
     progress: Progress | None,
 ) -> int | None:
     del progress
-    return python_search_salt(sections, start=start, count=count, backend="cpu")
+    return exact_search_salt(sections, start=start, count=count, backend="cpu")
 
 
 def _scan_with_cpu(
@@ -55,7 +55,7 @@ def _scan_with_cpu(
         import numpy as np
         from .cpu_filter import scan
     except ImportError:
-        return _python_fallback(sections, start, count, progress)
+        return _exact_fallback(sections, start, count, progress)
 
     numba.set_num_threads(min(8, numba.config.NUMBA_NUM_THREADS))
     prefix = np.frombuffer(screen.descriptor.seed, dtype=np.uint8)
@@ -139,7 +139,7 @@ def search_salt(
     backend: str = "auto",
     progress: Progress | None = None,
 ) -> int | None:
-    """Find a section salt using OpenCL, Numba, or the exact Python fallback."""
+    """Find a section salt using OpenCL, Numba, or the exact bounded fallback."""
 
     _validate_range(start, count)
     if backend not in ("auto", "cpu", "opencl"):
@@ -150,7 +150,7 @@ def search_salt(
     if screen is None:
         raise EnigmaFormatError("no nonempty RC4 section to search")
     if not screen.descriptor.flags & 1 or len(screen.ciphertext) < 128:
-        return _python_fallback(sections, start, count, progress)
+        return _exact_fallback(sections, start, count, progress)
 
     if backend in ("auto", "opencl"):
         try:

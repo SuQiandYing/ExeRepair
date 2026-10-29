@@ -269,10 +269,10 @@ V1–V7容器布局、记录、模式和签名/XOR变换。
 `enigma_common.py` 保存 Enigma codec、crypto 和 IDEA 处理逻辑：
 有界 LZ、前缀筛选、Enigma 分支修复、RC4、section key、可复用的 `SectionProbe`、IEEE CRC32 和 IDEA CBC。
 
-`enigma_unpack.py` 对应 `unpack/config.rs`、`extract.rs` 和 `imports.rs`。`parse_configuration()` 要求调用方提供已经确认的 metadata RVA，验证元数据密文/明文摘要，解析 descriptor、entry patch 和 Loader copy projection。
+`enigma_unpack.py` 负责配置解析、描述符读取、入口补丁信息、section 解码和 import record 处理。`parse_configuration()` 要求调用方提供已经确认的 metadata RVA，验证元数据密文/明文摘要，解析 descriptor、entry patch 和 Loader copy projection。
 `stored_sections()`、`decode_section()`、`recover_sections()` 完成 section 读取、salt 解密、CRC/LZ 校验和分支恢复；`restore_recovered_sections()` 只提供原始 PE raw 容量足够时的安全字节替换，不生成独立可运行 PE。
 
-`evb.py` 对应 `evb/extract.rs`，支持 EVB v1/v3 目录、压缩文件块、相对路径检查和重复输出检查。格式层只返回不可变结果，不写文件，不启动目标程序。
+`evb.py` 负责 EVB v1/v3 目录、压缩文件块、相对路径检查和重复输出检查。格式层只返回不可变结果，不写文件，不启动目标程序。
 
 ## `enigma_common.py`
 
