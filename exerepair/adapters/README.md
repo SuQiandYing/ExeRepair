@@ -25,6 +25,10 @@ OpenCL 输入前缀为 16 字节，密文至少 128 字节；扫描区间有 32 
 工作组大小由设备/内核信息决定。输入相同时复用缓冲区，变化时重新上传；
 输出容量不足时增长并释放旧缓冲区，`close()` 反序释放自己持有的全部句柄。
 
+### Enigma section salt 搜索
+
+`enigma_search.py` 复用 `cpu_filter.py` 和 `opencl_filter.py` 的结构筛选接口，输入 Enigma descriptor 的 16 字节 seed 和密文前缀，输出候选 salt 后交回 `formats.enigma_unpack.verify_sections()` 做所有 section 的完整 CRC/LZ 校验。
+`auto` 先尝试 OpenCL，再使用 Numba CPU；缺少可选依赖或 section 不满足前缀筛选条件时退回格式层的精确 Python 搜索。适配器不保存 salt 或派生 key，也不把候选写入搜索游标。
 ### 捕获与恢复
 
 `capture_context()` 只为已验证载荷配置创建自己的临时探测副本及 Frida 会话。
@@ -77,6 +81,11 @@ CPU 与 GPU 位图只筛选结构候选，不是最终成功条件。显式 GPU 
 | `resolve_library(path: str &#124; Path &#124; None=None) -> Path` | 从参数、环境变量或匹配架构发行包解析 DLL；返回缓存库路径。 明确抛出：`RecoveryError`。 |
 
 
+### `enigma_search.py`
+
+| 函数签名 | 功能、结果与边界 |
+| --- | --- |
+| `search_salt(sections, *, start=0, count=1 << 32, backend="auto", progress=None) -> int | None` | 选择 OpenCL/Numba/纯 Python 候选筛选并以完整 section 校验确认 salt；未加盐时返回 `None`，没有匹配时抛出 `EnigmaFormatError`。 |
 ### `component_recovery.py`
 
 合成向量验证、上下文校验、后端选择、有界恢复与搜索游标。

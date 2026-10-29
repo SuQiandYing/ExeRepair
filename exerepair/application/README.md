@@ -18,6 +18,11 @@
 资源路径规范化，多个补丁命中同一资源时只先复制一次。
 该流程可能留下部分输出，并没有修复事务的 no-clobber / 回滚发布机制。
 
+### Enigma 静态恢复
+
+`EnigmaService.inspect()` 读取 PE，并可在调用方提供已确认的元数据 RVA 后解析 Enigma 配置。
+`recover()` 解密配置、读取 packed sections、选择 section salt、校验所有恢复节，并在 Loader context 已知时提取 EVB 文件。
+输出目录必须不存在；恢复节写入 `sections/`，EVB 文件使用安全的相对路径写出。该服务不启动目标程序，也不调用 `RepairService` 的 profile、捕获或事务发布流程。
 ### 单目标修复
 
 `RepairService.inspect()` 只读匹配身份并解析 PE。
@@ -46,6 +51,8 @@
 导出本目录对外类型与函数；不复制实现。`__all__` 列出推荐公开符号。
 
 公开导出：`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`LoadedProgram`、`PatchFailure`、`PatchInfo`、`ProgramExtractor`、`ProgramLoader`、`ContainerService`。
+
+Enigma 导出：`EnigmaInspection`、`EnigmaRecoveryResult`、`EnigmaService`。
 
 此文件导入/转发：`ProgramExtractor`、`LoadedProgram`、`ProgramLoader`、`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ContainerService`。
 
@@ -108,6 +115,17 @@
 | `ProgramLoader._parse_executable(self, executable: bytes) -> PEFile` | 依次尝试 PE32/PE64；都失败时返回主程序无效错误。 明确抛出：`LoadError`。 |
 
 
+### `enigma.py`
+
+静态 Enigma 配置、section 和 EVB 恢复应用服务。
+
+| 方法 / 属性签名 | 功能、结果与边界 |
+| --- | --- |
+| `EnigmaService.inspect(self, target: str | Path, *, metadata_rva: int | None=None, loader: bytes | None=None, layout: EnigmaLayout | object | Sequence[tuple[int, int]] | None=None) -> EnigmaInspection` | 只读解析 PE；提供元数据 RVA 时验证配置描述符和可选 Loader context。 |
+| `EnigmaService.recover(self, target: str | Path, *, metadata_rva: int, salt: int | None=None, backend: str='auto', search_start: int=0, search_count: int=1 << 32, loader: bytes | None=None, layout: EnigmaLayout | object | Sequence[tuple[int, int]] | None=None, output_directory: str | Path | None=None, progress: Progress | None=None) -> EnigmaRecoveryResult` | 恢复 sections 和 EVB；未知 salt 通过 OpenCL/Numba/纯 Python 适配器候选搜索；输出目录只能新建。 |
+
+`EnigmaInspection` 保存输入路径、PE 位数、映像基址、入口 RVA、节数量和配置对象。
+`EnigmaRecoveryResult` 保存内存中的 section/EVB 结果和输出目录；salt 不在 CLI 日志中打印。
 ### `recovery.py`
 
 应用层缓存和修复发布。

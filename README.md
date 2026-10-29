@@ -10,6 +10,7 @@ ExeRepair 是用于本地 EXE 容器检查、内容提取、载荷恢复和副�
 | 只读检查 | EXE 文件 | 解析容器或匹配修复配置，不启动目标程序 | 格式版本、模式、区块数量和检查结果 |
 | 容器提取 | V1–V7 容器、相邻的必要文件 | 解析配置、恢复主程序与指定资源区块 | 主程序副本、匹配输出名的 `.cf`/`.cf.sig` 伴随文件（若存在）、按相对位置复制的资源、失败区块信息 |
 | 载荷修复 | 通过载荷流程输入校验的 EXE | 复用校验清单；无清单时隔离捕获并恢复载荷 | 含 `.repair` 节的 EXE 及差异、验证、回滚文件 |
+| Enigma 静态恢复 | 已确认元数据 RVA 的 Enigma PE | 解析配置、恢复加密节、搜索 section salt、提取 EVB | `sections` 目录和 EVB 相对文件；不启动目标程序 |
 | 原生调用修复 | 通过原生调用流程输入校验的 EXE | 静态生成带字节保护检查的跳板并重新封装引擎 | 含 `.repair` 和 `.epack` 节的 EXE 及事务文件 |
 | 光盘与安装目录兼容 | 通过精确配置校验的 PE32 | 保留打包节，生成受保护回调及可选 Unicode 目录查询 | 含 `.repair` 和 `.rstate` 节的 EXE 及事务文件 |
 | 桌面操作 | 拖入或选择一个 EXE | 自动选择提取或修复流程，显示状态与日志 | 与相应应用服务一致的结果 |
@@ -44,11 +45,12 @@ python -m pip install -e ".[dev,verification]"
 | Frida、psutil | 隔离子进程的捕获与清理 | 首次载荷恢复；需要 64 位 Python |
 | NumPy、Numba | CPU 筛选与校验 | 首次载荷恢复 |
 | OpenCL 驱动 | GPU 结构筛选 | 选择 GPU 后端；驱动不由 pip 安装 |
+| Enigma 静态恢复的 NumPy、Numba | CPU section salt 候选筛选；缺少时退回有界纯 Python 校验 | 未知 section salt 的 Enigma 恢复 |
 | 内置 aPLib DLL | 引擎重压缩 | 修复流程；按 Python 位数选择 DLL |
 | pytest、Ruff | 回归与静态检查 | 开发验证 |
 | Unicorn | 隔离执行合成 x86 机器码 | 可选 `verification` 测试依赖，不参与产品运行 |
 
-只读检查、容器提取和已恢复清单重放不加载运行时捕获依赖。
+只读检查、容器提取和已恢复清单重放不加载运行时捕获依赖。 Enigma 的元数据检查不加载可选依赖；未知 section salt 的恢复会按 `auto`、CPU、纯 Python 顺序选择筛选器。
 原生调用修复不使用载荷清单、Frida 或搜索后端。
 光盘检查兼容流程也不使用压缩器；构建不启动目标程序。
 输入边界及运行时 API 形式要求见 [光盘检查流程](docs/DISC_CHECK_REPAIR.md)。
@@ -103,6 +105,15 @@ python -m exerepair TARGET.exe -o .\output\OUTPUT.exe --work-dir .\cache
 # 载荷配置：复用已有清单，不再捕获或搜索
 python -m exerepair TARGET.exe -o .\output\OUTPUT.exe --recovery-manifest .\cache\recovered-payloads.json
 
+# Enigma read-only inspection; replace 0x2040 with the actual metadata RVA
+python -m exerepair TARGET.exe --enigma --inspect --enigma-metadata-rva 0x2040
+
+# Enigma 静态恢复；输出目录必须不存在
+python -m exerepair TARGET.exe --enigma --enigma-metadata-rva 0x2040 -o .\output\TARGET_enigma
+
+# 已知 section salt 时跳过搜索；不会把盐值打印或写入输出
+python -m exerepair TARGET.exe --enigma --enigma-metadata-rva 0x2040 --enigma-salt 0x12345678 -o .\output\TARGET_enigma
+
 # 有界搜索；仅用于需要载荷恢复的配置
 python -m exerepair TARGET.exe -o .\output\OUTPUT.exe --backend cpu --search-start 0x0 --search-count 0x100000
 
@@ -127,11 +138,17 @@ python -m exerepair --help
 | `--gui` | 关闭 | 进入 GUI；可携带初始输入文件 |
 | `--force` | 关闭 | 仅修复事务使用，允许替换不同的已存在产物 |
 | `--recovery-manifest` | 自动检查当前工作目录中的缓存 | 载荷修复清单；原生调用配置拒绝此选项 |
+| `--enigma` | 关闭 | 进入 Enigma 配置/节/EVB 静态恢复流程；与 `--run`、`--gui`、`--recovery-manifest` 互斥 |
+| `--enigma-metadata-rva` | 无 | Enigma 元数据 RVA；`--enigma` 检查或恢复时使用，恢复必填 |
+| `--enigma-salt` | 自动搜索 | 已知 32 位 section salt；传入后跳过候选搜索 |
 | `--work-dir` | 输出目录下 `.exerepair/<输入摘要前12位>` | 缓存、搜索游标和隔离捕获目录 |
 | `--aplib-dll` | 内置匹配架构 DLL | 显式指定压缩器库；环境变量 `EXEREPAIR_APLIB_DLL` 也可提供 |
 | `--backend` | `auto` | `auto` 优先 OpenCL，不可用时 CPU；`opencl` 不自动降级 |
 | `--search-start` | `0` | 搜索起点；接受十进制或 `0x` 数值 |
 | `--search-count` | `2^32` | 搜索候选数；与起点共同满足 32 位范围限制 |
+
+Enigma 流程使用 `--backend auto|cpu|opencl` 选择 section salt 筛选器。`auto` 先尝试 OpenCL，
+再使用 NumPy/Numba CPU 适配器，缺少可选依赖时使用精确但较慢的纯 Python 校验。
 
 CLI 成功或只读检查成功返回 `0`；应用层识别、读取、提取或修复失败通常返回 `2`。
 参数解析失败也返回 `2`。GUI 返回值由其主事件循环结束后的入口返回值决定。
@@ -183,6 +200,7 @@ OUTPUT.exe.baseline.exe
 ```python
 from pathlib import Path
 from exerepair.api import ContainerService, ExtractionOptions, RepairService
+from exerepair.api import EnigmaService
 
 containers = ContainerService()
 inspection = containers.inspect("TARGET.exe")  # 只读容器检查
@@ -201,6 +219,18 @@ repaired = repairs.repair(
     manifest=Path("cache") / "recovered-payloads.json",
 )
 print(repaired.output_sha256)
+
+# Enigma 静态恢复：需要独立入口分析确认的元数据 RVA
+METADATA_RVA = 0x2040  # replace with the actual metadata RVA
+enigma = EnigmaService()
+inspection = enigma.inspect("TARGET.exe", metadata_rva=METADATA_RVA)
+recovered = enigma.recover(
+    inspection.source_path,
+    metadata_rva=inspection.metadata_rva,
+    backend="auto",
+    output_directory=Path("enigma-output"),
+)
+print(len(recovered.recovered_sections), len(recovered.evb_files))
 ```
 
 上面的容器与修复示例是两条独立用例，不表示同一个输入一定同时支持两条流程。
@@ -215,7 +245,7 @@ print(repaired.output_sha256)
 | `exerepair` | [入口、公共 API 和兼容导出](exerepair/README.md) |
 | `exerepair/application` | [加载、提取、修复发布和结果对象](exerepair/application/README.md) |
 | `exerepair/domain` | [枚举、数据字段、路径策略和错误契约](exerepair/domain/README.md) |
-| `exerepair/formats` | [PE、容器、引导层、aPLib 和 BCJ](exerepair/formats/README.md) |
+| `exerepair/formats` | [PE、容器、Enigma 配置、section 解密、EVB、aPLib 和 BCJ](exerepair/formats/README.md) |
 | `exerepair/security` | [CRC32、伪随机序列和 XOR](exerepair/security/README.md) |
 | `exerepair/adapters` | [文件系统、DLL、捕获、CPU / GPU 后端](exerepair/adapters/README.md) |
 | `exerepair/adapters/native` | [第三方发行包、架构选择与许可](exerepair/adapters/native/README.md) |

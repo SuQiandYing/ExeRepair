@@ -11,6 +11,7 @@ from .results import (
     PatchInfo,
 )
 from .service import ContainerService
+from .enigma import EnigmaInspection, EnigmaRecoveryResult, EnigmaService
 
 __all__ = [
     "ExtractionOptions",
@@ -23,4 +24,7 @@ __all__ = [
     "ProgramExtractor",
     "ProgramLoader",
     "ContainerService",
+    "EnigmaInspection",
+    "EnigmaRecoveryResult",
+    "EnigmaService",
 ]

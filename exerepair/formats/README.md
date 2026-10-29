@@ -44,7 +44,7 @@ RVA 映射选择地址所属节，避免较早节的较大 RawSize 覆盖后续�
 
 导出本目录对外类型与函数；不复制实现。`__all__` 列出推荐公开符号。
 
-公开导出：`ImageSectionHeader`、`PEFile`、`PEFormatError`、`PEParser`、`ContainerStub`、`StubParser`。
+公开导出：`ImageSectionHeader`、`PEFile`、`PEFormatError`、`PEParser`、`ContainerStub`、`StubParser`、`EnigmaFormatError`、Enigma 配置/section/EVB 接口。
 
 此文件导入/转发：`ImageSectionHeader`、`PEFile`、`PEFormatError`、`PEParser`、`ContainerStub`、`StubParser`。
 
@@ -263,6 +263,41 @@ V1–V7容器布局、记录、模式和签名/XOR变换。
 | `_read_exact(stream: BinaryIO, size: int) -> bytes` | 循环从流读取指定长度，遇到末尾停止，调用方校验是否读满。 |
 | `_decode_name(data: bytes &#124; bytearray &#124; memoryview, limit: int=-1) -> str` | 在名称上限内找终止符，按 CP932 解码；空值或未终止返回空字符串。 |
 
+
+## Enigma 配置、节与 EVB
+
+`enigma_common.py` 保存 Enigma codec、crypto 和 IDEA 处理逻辑：
+有界 LZ、前缀筛选、Enigma 分支修复、RC4、section key、可复用的 `SectionProbe`、IEEE CRC32 和 IDEA CBC。
+
+`enigma_unpack.py` 对应 `unpack/config.rs`、`extract.rs` 和 `imports.rs`。`parse_configuration()` 要求调用方提供已经确认的 metadata RVA，验证元数据密文/明文摘要，解析 descriptor、entry patch 和 Loader copy projection。
+`stored_sections()`、`decode_section()`、`recover_sections()` 完成 section 读取、salt 解密、CRC/LZ 校验和分支恢复；`restore_recovered_sections()` 只提供原始 PE raw 容量足够时的安全字节替换，不生成独立可运行 PE。
+
+`evb.py` 对应 `evb/extract.rs`，支持 EVB v1/v3 目录、压缩文件块、相对路径检查和重复输出检查。格式层只返回不可变结果，不写文件，不启动目标程序。
+
+## `enigma_common.py`
+
+| 函数 / 类型 | 作用 |
+| --- | --- |
+| `lz_decompress(data, expected, strict=False)` | 解码 Enigma LZ；metadata/section 使用 strict，Loader/EVB block 可保留尾部填充。 |
+| `plausible_prefix(data, packed_size, expected)` | 只拒绝结构上不可能的 LZ 前缀，供 section salt 候选筛选。 |
+| `fix_branches(data)` | 执行 Enigma E8/E9/FF25 逆变换。 |
+| `section_key(seed, salt)` / `SectionProbe` | 派生 32 字节 section RC4 key，并复用前 16 轮 KSA。 |
+| `Idea.decrypt(data)` | 使用 Loader CBC feedback 解密完整块和非整块尾部。 |
+
+## `enigma_unpack.py`
+
+| 函数 / 类型 | 作用 |
+| --- | --- |
+| `parse_configuration(data, pe, metadata_rva, ...)` | 解码配置并返回 `Configuration`。 |
+| `stored_sections(data, pe, config)` | 从描述符 RVA 读取 enabled packed sections。 |
+| `decode_section(section, salt=None, filter_branches=False)` | 完整 CRC、解密、长度和 LZ 校验。 |
+| `search_salt(sections, start=0, count=2**32, backend='cpu')` | 纯 Python 精确搜索，适合小范围和算法验证。 |
+| `parse_import_records(plain, key, flag_size)` | 验证 IDEA import record 的名称、序号、IAT slot 和完整消费。 |
+| `restore_recovered_sections(data, pe, recovered)` | 在原始 raw 容量允许时写回恢复字节；不处理 IAT/TLS/重定位/Loader 删除。 |
+
+## `evb.py`
+
+`extract_evb(data, pe, context)` 返回 `EVBFile` 元组。它会区分 EVB v1 的交错目录与 v3 的压缩目录，分别验证明文/压缩存储解释，拒绝路径穿越和设备名，并在发现多个可解释容器时失败关闭。
 
 ## 对应验证
 

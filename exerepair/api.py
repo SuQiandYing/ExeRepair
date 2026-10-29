@@ -8,7 +8,11 @@ from .application import (
     PatchFailure,
     PatchInfo,
     ContainerService,
+    EnigmaInspection,
+    EnigmaRecoveryResult,
+    EnigmaService,
 )
+from .formats import EnigmaFormatError
 from .domain.errors import (
     ErrorCode,
     ExtractError,
@@ -28,6 +32,7 @@ from .domain.recovery import (
 from .workflows.profiles import NATIVE_CALL_X86_V2
 
 __all__ = [
+    "EnigmaFormatError",
     "ErrorCode",
     "ExtractionOptions",
     "ExtractionProgress",
@@ -40,6 +45,9 @@ __all__ = [
     "OperationError",
     "WrappedProgram",
     "ContainerService",
+    "EnigmaInspection",
+    "EnigmaRecoveryResult",
+    "EnigmaService",
     "RepairService",
     "DiscCheckProfile",
     "NativeCallProfile",

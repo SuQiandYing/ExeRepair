@@ -8,6 +8,7 @@ import sys
 
 from .application import ContainerService, ExtractionOptions
 from .application.recovery import RepairService
+from .application.enigma import EnigmaService
 from .domain.errors import OperationError
 from .domain.models import PatchMode
 from .domain.recovery import DiscCheckProfile, NativeCallProfile
@@ -19,6 +20,9 @@ def _path_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-i", "--inspect", action="store_true", help="仅显示信息，不写出副本")
     parser.add_argument("-o", "--output", type=Path, help="输出路径")
     parser.add_argument("--gui", action="store_true", help="打开图形界面")
+    parser.add_argument("--enigma", action="store_true", help="使用静态 Enigma 配置/节/EVB 恢复流程")
+    parser.add_argument("--enigma-metadata-rva", type=lambda value: int(value, 0), help="Enigma 元数据 RVA（静态恢复必填）")
+    parser.add_argument("--enigma-salt", type=lambda value: int(value, 0), help="已知 Enigma 32 位 section salt")
     parser.add_argument("--force", action="store_true", help="允许替换不同的现有输出")
     parser.add_argument(
         "--run",
@@ -83,6 +87,42 @@ def _print_program(program) -> None:
         print(f"{label}: {value}")
 
 
+def _enigma_command(target: Path, args) -> int:
+    if args.run or args.gui or args.recovery_manifest is not None:
+        raise ValueError("--enigma 不能与 --run、--gui 或 --recovery-manifest 一起使用")
+    service = EnigmaService()
+    if args.inspect:
+        inspection = service.inspect(target, metadata_rva=args.enigma_metadata_rva)
+        print(f"PE 位数: {inspection.bitness}")
+        print(f"映像基址: 0x{inspection.image_base:x}")
+        print(f"入口 RVA: 0x{inspection.entry_rva:x}")
+        print(f"节数量: {inspection.section_count}")
+        if inspection.configuration is None:
+            print("未解析元数据；提供 --enigma-metadata-rva 可继续配置检查")
+        else:
+            print(f"描述符数量: {len(inspection.configuration.descriptors)}")
+            print(f"Loader 上下文: {'已提供' if inspection.configuration.context is not None else '未提供'}")
+        return 0
+    if args.enigma_metadata_rva is None:
+        raise ValueError("静态 Enigma 恢复需要 --enigma-metadata-rva；RVA 必须来自独立入口分析")
+    output = args.output or target.with_name(f"{target.stem}_enigma")
+    result = service.recover(
+        target,
+        metadata_rva=args.enigma_metadata_rva,
+        salt=args.enigma_salt,
+        backend=args.backend,
+        search_start=args.search_start,
+        search_count=args.search_count,
+        output_directory=output,
+        progress=lambda message: print(message, flush=True),
+    )
+    print(f"section salt: {'已恢复' if result.salt is not None else '未加密'}")
+    print(f"恢复节: {len(result.recovered_sections)}")
+    print(f"EVB 文件: {len(result.evb_files)}")
+    print(f"输出目录: {result.output_directory}")
+    return 0
+
+
 def _inspect_or_repair(target: Path, args) -> int:
     inspection = RepairService().inspect(target)
     profile = inspection.profile
@@ -126,6 +166,14 @@ def _inspect_or_repair(target: Path, args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.enigma:
+        if args.executable is None:
+            parser.error("--enigma 必须提供目标 EXE")
+        try:
+            return _enigma_command(args.executable, args)
+        except (OSError, ValueError, KeyError, TypeError) as failure:
+            print(f"exerepair: {failure}", file=sys.stderr)
+            return 2
     if args.run:
         if args.executable is None:
             parser.error("--run 必须提供目标 EXE")

@@ -1,75 +1,109 @@
-# 引擎解析与载荷恢复
+# Enigma 静态恢复与运行时修复边界
+
+ExeRepair 现在把 原始实现中可以脱离 Loader 指令解释器复用的部分放进格式、适配器和应用层。该流程读取输入副本，不启动目标程序，也不把 section salt、密钥前缀或其他派生值写入日志、清单和输出目录。
+
+## 代码关系
+
+| 原始模块 | ExeRepair | 功能内容 |
+| --- | --- | --- |
+| `common/codec.rs` | `exerepair/formats/enigma_common.py` | 有界 LZ 解压、LZ 前缀筛选和 E8/E9/FF25 分支恢复 |
+| `common/crypto.rs` | `exerepair/formats/enigma_common.py` | RC4、32 位 salt 派生 key、`SectionProbe` |
+| `common/idea.rs` | `exerepair/formats/enigma_common.py` | Loader 使用的 IDEA CBC 与非整块尾部处理 |
+| `unpack/config.rs` | `exerepair/formats/enigma_unpack.py` | 元数据解密、描述符表、entry patch 和 Loader copy projection |
+| `unpack/extract.rs` | `exerepair/formats/enigma_unpack.py` | 加密节读取、CRC、LZ、分支修复和 raw section recovery |
+| `unpack/imports.rs` | `exerepair/formats/enigma_unpack.py` | IDEA import record 解析、RVA 引用校验和恢复节读取 |
+| `unpack/cpu_search.rs` / GPU filters | `exerepair/adapters/enigma_search.py` | OpenCL、Numba CPU 候选筛选；候选统一回到完整格式校验 |
+| `evb/extract.rs` | `exerepair/formats/evb.py` | EVB v1/v3 目录定位、路径检查、明文/压缩文件恢复 |
+| `unpack/task.rs` | `exerepair/application/enigma.py` | Python 服务对象、进度回调和新输出目录发布 |
+
+已有的 `exerepair/formats/enigma.py` 继续负责 PE、Enigma 引导层、aPLib 和引擎容器识别；新模块只依赖格式层，不把 GPU、捕获或 GUI 依赖带入解析器。
 
 ## 输入与准备
 
-本流程接收 EXE、修复参数、缓存目录和压缩器。文件长度、完整 SHA-256、
-PE 结构与原始字节分别用于输入检查，不以文件名判断处理方式。
-输入校验由 `RepairService.inspect()` 与流程构建器执行。
+静态恢复需要调用方提供经过入口分析确认的元数据 RVA。完整 Rust Loader 入口跟踪目前没有被伪装成 Python 自动发现，因此 `--enigma-metadata-rva` 是恢复模式的必填参数。`--enigma --inspect` 可以先只解析 PE；提供元数据 RVA 后会继续验证配置描述符。
 
-构建器检查 PE32、映像基址、ASLR 状态及节表空间。
-首次捕获需要 Windows、64 位 Python 与恢复依赖；已有清单先重新校验，
-通过后直接进入构建，不再次加载捕获依赖。输出副本仍使用输入程序的外部资源。
+输入由 `PEImage.parse()` 严格检查 DOS/NT 头、位数、节表、Raw 范围和 RVA 映射。元数据解码按 Rust 顺序尝试跳过共享节和包含共享节两种 MD5 派生 key，并验证：
 
-## 引导与引擎解析
+1. 元数据密文 MD5；
+2. RC4 与有界 LZ 解码；
+3. 明文尾部 MD5；
+4. 描述符数量、长度、RVA、CRC 和 serialized table 范围。
 
-1. `PEImage.parse()` 读取头部、节表和文件范围。
-2. `decode_enigma_bootstrap()` 按指令结构识别解码参数。
-3. `extract_enigma_engine()` 返回容器分析、文件偏移和引擎字节。
-4. 容器按参数执行 DWORD 变换和有界 aPLib 解压。
-5. 构建时执行对应重编码、重压缩与往返比较。
+## 恢复流程
 
-`bcj_transform()` 按引擎格式处理 `E8/E9` 和 `FF 25` 操作数。
-扫描跳过已处理的操作数，编码与解码返回独立字节。
-该变换用于这里的容器编码，不作为其他格式的 BCJ 实现。
+`EnigmaService.recover()` 执行以下步骤：
 
-## 捕获与恢复
+1. 读取并解析 PE；
+2. 解析 Enigma 配置和可选 Loader context；
+3. 读取 enabled section，并应用唯一 entry patch；
+4. 若没有传入 salt，先检查未加盐状态；
+5. 对未知 salt 使用 `auto`、OpenCL、Numba CPU 或纯 Python 候选筛选；
+6. 对每个候选执行所有 section 的 RC4、CRC32、LZ 和长度校验；
+7. 恢复 section 字节，并在 context 足够时提取 EVB 虚拟文件；
+8. 将恢复节写入 `output_directory/sections/`，将 EVB 相对路径写到同一输出目录。
 
-载荷描述符包含源 RVA、处理标记、长度、前缀及预期 CRC。
-恢复参数包含分量域、密钥长度、描述符集合与输入校验信息。
-
-1. 在隔离工作目录中准备临时副本和初始化依赖。
-2. 捕获适配器在参数指定的运行点读取描述符，并管理自己创建的进程。
-3. CPU 或 OpenCL 在给定范围执行 MD5、RC4 与 aPLib 前缀结构筛选。
-4. 对候选执行完整恢复，比较长度、CRC32 和 SHA-256。
-5. 参数要求的全部载荷校验通过后返回，并清理捕获上下文。
-6. 保存相对路径清单；后续读取重算载荷摘要。
-
-`auto` 尝试 OpenCL，不可用时选择 CPU；显式 `opencl` 不自动降级。
-搜索批次和游标记录已经完成的范围及输入摘要。
-派生值只在恢复内存中使用，不写入日志、清单或输出副本。
-
-## 副本构建
-
-原始密文保留，新增 `.repair` 节存放复制 helper、查找表和已校验载荷。
-helper 按描述符源 RVA 查找数据，将规定长度的字节复制到引擎缓冲区，
-保存并恢复通用寄存器与 EFLAGS，继续原有完整性检查和初始化路径。
-
-控制流编辑的位置、预期记录和源字节由修复参数提供。
-`patch_gate()` 校验 VM 表、记录范围与引用；构建器记录每项修改，
-并保持调用的参数、返回和栈清理约定。引擎重封装还要验证压缩容量与往返。
-
-## 命令和清单
-
-在项目根目录运行：
+命令行示例：
 
 ```powershell
-python -m pip install -e ".[recovery]"
-python -m exerepair --inspect TARGET.exe
-python -m exerepair TARGET.exe -o .\output\OUTPUT.exe --work-dir .\cache
-python -m exerepair TARGET.exe -o .\output\OUTPUT.exe --recovery-manifest .\cache\recovered-payloads.json
+# 只读 PE 和配置检查
+python -m exerepair TARGET.exe --enigma --inspect --enigma-metadata-rva 0x2040
+
+# 自动选择搜索适配器
+python -m exerepair TARGET.exe --enigma --enigma-metadata-rva 0x2040 `
+  --backend auto --search-start 0 --search-count 0x100000 `
+  --output .\output\TARGET_enigma
+
+# 已知 salt 时跳过候选搜索
+python -m exerepair TARGET.exe --enigma --enigma-metadata-rva 0x2040 `
+  --enigma-salt 0x12345678 --output .\output\TARGET_enigma
 ```
 
-清单记录源 RVA、文件偏移、长度、flags、CRC、SHA-256 与相对载荷文件名。
-`load_payload_manifest()` 重新读取载荷并验证记录，不仅依据清单中的标志。
-清单格式标记用于解析兼容，不是产品版本号；兼容字段不作为新增写入地址。
+`output_directory` 必须是不存在的目录，避免把一次恢复的文件与另一份结果混合。服务保留输入文件不变；CLI 只显示“已恢复”或“未加密”，不显示 salt 数值。
 
-## 输出与错误
+## EVB 与路径安全
 
-输出包含 EXE 副本、差异 JSON、验证 JSON、回滚脚本与原始基线。
-输入检查失败、捕获超时、搜索无匹配、载荷摘要不符、原字节变化、
-节表空间不足或压缩容量不足时，流程返回相应错误。
+EVB v1 的目录记录与文件数据交错，v3 先解密并解压目录，再读取压缩索引和独立 LZ block。提取器限制最大展开尺寸、文件数量、子节点数量和记录边界，并拒绝绝对路径、`..`、设备名、通配符、环境变量样式路径及尾随点/空格路径。输出路径在写出前再次检查重复项。
 
-文件级验证与实际运行分别记录；`runtime_launch_verified` 默认是 `false`。
-接口见 [适配器](../exerepair/adapters/README.md)、
-[构建流程](../exerepair/workflows/README.md) 和
-[应用发布](../exerepair/application/README.md)。
+## 公开接口
+
+```python
+from pathlib import Path
+from exerepair.api import EnigmaService
+
+METADATA_RVA = 0x2040  # replace with the actual metadata RVA
+service = EnigmaService()
+inspection = service.inspect("TARGET.exe", metadata_rva=METADATA_RVA)
+result = service.recover(
+    inspection.source_path,
+    metadata_rva=inspection.metadata_rva,
+    backend="auto",
+    output_directory=Path("TARGET_enigma"),
+)
+print(len(result.recovered_sections), len(result.evb_files))
+```
+
+格式层还公开 `parse_configuration()`、`stored_sections()`、`decode_section()`、`recover_sections()`、`restore_recovered_sections()`、`parse_import_records()` 和 `extract_evb()`。这些函数不创建文件，不启动进程；应用服务负责目录发布。
+
+## 尚未移植的部分
+
+以下功能仍保留在 Rust 实现中，当前 Python 流程不会宣称已经完成：
+
+- Loader 入口的静态 x86 指令跟踪和元数据/Loader 自动定位；
+- VM token、handler、模板入口和完整静态反虚拟化；
+- Python 侧 x86 IR、寄存器/标志语义和原生代码生成；
+- 原始 IAT、TLS、重定位和 Loader 启动路径重建；
+- 删除 Loader 后生成独立可运行 PE 的完整 `rebuild`；
+- runtime DLL 单独提取模式和完整 CUDA/WGPU 构建链。
+
+因此 `sections/` 中的恢复字节和 EVB 文件是静态恢复产物；它们不自动等价于已经去壳且可直接运行的 EXE。现有 `RepairService` 的已验证 profile 流程继续使用自己的清单、捕获和事务发布契约，`--enigma` 是独立的静态检查/恢复入口。
+
+## 验证
+
+```powershell
+python -m pytest tests/test_enigma_port.py -q
+python -m pytest -q
+python -m ruff check exerepair tests tools
+python -m compileall -q exerepair tests tools main.py
+```
+
+专项测试覆盖 Rust 算法向量、元数据和 section 恢复、32 位 salt 边界、EVB v1/v3 夹具、路径防护、应用服务输出和 CLI 路由。

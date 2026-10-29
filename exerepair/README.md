@@ -1,7 +1,7 @@
 # 包入口、公共 API 与命令行
 
 本目录连接命令行、桌面入口和公共 API，具体格式与处理用例分别放在子目录。
-`__init__.py` 导出容器接口和版本；`api.py` 汇总容器与修复接口；
+`__init__.py` 导出容器、Enigma 和版本接口；`api.py` 汇总容器、Enigma 与修复接口；
 `__main__.py` 提供模块式 CLI 入口。`crypto.py`、`pe.py`、`stub.py`
 是兼容导出层，不重复维护算法实现。
 
@@ -30,7 +30,7 @@
 
 导出本目录对外类型与函数；不复制实现。`__all__` 列出推荐公开符号。
 
-公开导出：`PEFile`、`PEFormatError`、`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ProgramExtractor`、`ProgramLoader`、`RandomV1`、`ContainerFlags`、`PatchRecord`、`WrappedProgram`、`ContainerService`、`crc32`、`xor_in_place`。
+公开导出：`PEFile`、`PEFormatError`、`EnigmaFormatError`、`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ProgramExtractor`、`ProgramLoader`、`RandomV1`、`ContainerFlags`、`PatchRecord`、`WrappedProgram`、`ContainerService`、`EnigmaInspection`、`EnigmaRecoveryResult`、`EnigmaService`、`crc32`、`xor_in_place`。
 
 此文件导入/转发：`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ProgramExtractor`、`ProgramLoader`、`ContainerService`、`RandomV1`、`crc32`、`xor_in_place`、`ContainerFlags`、`PatchRecord`、`PEFile`、`PEFormatError`、`WrappedProgram`。
 
@@ -50,7 +50,7 @@
 处理仍调用同一个
 `RepairService.inspect()` / `repair()`，不需要专用的入口脚本。
 
-公开导出：`ErrorCode`、`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ExtractError`、`LoadError`、`OperationError`、`WrappedProgram`、`ContainerService`、`RepairService`、`RecoveryError`、`RepairInspection`、`RepairResult`。
+公开导出：`ErrorCode`、`EnigmaFormatError`、`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ExtractError`、`LoadError`、`OperationError`、`WrappedProgram`、`ContainerService`、`EnigmaInspection`、`EnigmaRecoveryResult`、`EnigmaService`、`RepairService`、`RecoveryError`、`RepairInspection`、`RepairResult`。
 
 此文件导入/转发：`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ContainerService`、`ErrorCode`、`ExtractError`、`LoadError`、`OperationError`、`WrappedProgram`、`RepairService`、`RecoveryError`、`RepairInspection`、`RepairResult`。
 
