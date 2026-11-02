@@ -51,7 +51,9 @@ class _X86:
         return bytes(self.code)
 
 
-def _validate_profile(profile: DiscCheckProfile) -> None:
+def validate_disc_profile(profile: DiscCheckProfile) -> None:
+    if profile.requires_runtime_discovery:
+        raise RecoveryError("候选配置尚未完成运行时验证")
     if profile.static_patch_sites:
         if (
             profile.region_patch_sites
@@ -132,7 +134,7 @@ def disc_helper(
     profile: DiscCheckProfile, code_va: int, state_va: int, original_entry_va: int,
 ) -> tuple[bytes, bytes, dict]:
     """Return RX code, RW state and layout; no addresses belong to this host."""
-    _validate_profile(profile)
+    validate_disc_profile(profile)
     if any(not 0 <= value <= 0xFFFFEFFF for value in
            (code_va, state_va, original_entry_va)):
         raise RecoveryError("光盘检查 helper 地址超出 32 位范围")
@@ -831,7 +833,7 @@ def _build_static_disc_repair(
     exists.  It keeps the PE layout unchanged, so normal relocations and ASLR
     remain valid.
     """
-    _validate_profile(profile)
+    validate_disc_profile(profile)
     if sha256(original) != profile.baseline_sha256 or len(original) != profile.baseline_size:
         raise RecoveryError("原始样本身份不匹配")
     try:
@@ -940,7 +942,7 @@ def build_disc_repair(original: bytes, profile: DiscCheckProfile) -> BuiltRepair
     """Generate a separate PE copy and v2 patch; never launch or access files."""
     if profile.static_patch_sites:
         return _build_static_disc_repair(original, profile)
-    _validate_profile(profile)
+    validate_disc_profile(profile)
     if sha256(original) != profile.baseline_sha256 or len(original) != profile.baseline_size:
         raise RecoveryError("原始样本身份不匹配")
     try:

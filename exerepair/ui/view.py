@@ -69,6 +69,19 @@ class MainWindow:
             top, text="拖入 EXE 到窗口，或点击选择", style="Muted.TLabel"
         )
         self.path_label.grid(row=0, column=1, sticky="w")
+        self.resource_button = ttk.Button(
+            top, text="资源目录…", command=self.select_resource_directory, state="disabled"
+        )
+        self.resource_button.grid(row=1, column=0, sticky="w", padx=(0, 10), pady=(8, 0))
+        resource = ttk.Frame(top, style="Main.TFrame")
+        resource.grid(row=1, column=1, sticky="ew", pady=(8, 0))
+        resource.columnconfigure(0, weight=1)
+        self.resource_label = ttk.Label(resource, text="", style="Muted.TLabel", anchor="w")
+        self.resource_label.grid(row=0, column=0, sticky="ew")
+        self.resource_clear = ttk.Button(
+            resource, text="恢复默认", command=self.clear_resource_directory, state="disabled"
+        )
+        self.resource_clear.grid(row=0, column=1, padx=(8, 0))
 
         status = tk.Frame(
             frame, background=PANEL, highlightbackground=LINE, highlightthickness=1
@@ -138,6 +151,19 @@ class MainWindow:
         if name:
             self.load_path(name)
 
+    def select_resource_directory(self) -> None:
+        if self._busy or not self.controller.state.can_choose_resource_dir:
+            return
+        directory = filedialog.askdirectory(parent=self.root, title="选择匹配的资源目录", mustexist=True)
+        if directory:
+            self.controller.set_disc_resource_dir(directory)
+            self.render(self.controller.state)
+
+    def clear_resource_directory(self) -> None:
+        if not self._busy:
+            self.controller.set_disc_resource_dir(None)
+            self.render(self.controller.state)
+
     def load_path(self, path: str | Path) -> None:
         if self._busy:
             return
@@ -179,7 +205,7 @@ class MainWindow:
                     self.render(event[1])  # type: ignore[arg-type]
                     if event[2]:
                         messagebox.showinfo(
-                            "ExeRepair", f"完成：\n{event[2]}", parent=self.root
+                            "ExeRepair", f"完成：\n{event[1].status_detail}", parent=self.root
                         )
                     else:
                         messagebox.showerror(
@@ -207,6 +233,15 @@ class MainWindow:
         self.status_title.configure(foreground=color)
         self.action.configure(
             text=state.action_label, state="normal" if state.can_act and not self._busy else "disabled"
+        )
+        resource_dir = self.controller.recovery_options.get("disc_resource_dir")
+        self.resource_label.configure(text=str(resource_dir) if resource_dir else "默认：EXE 所在目录")
+        self.resource_button.configure(
+            state="normal" if state.can_choose_resource_dir and not self._busy else "disabled"
+        )
+        self.resource_clear.configure(
+            state="normal" if resource_dir and state.can_choose_resource_dir and not self._busy
+            else "disabled"
         )
         if any(row.values != ("", "") for row in state.rows) or state.rows != getattr(self, "_rows", state.rows):
             self._rows = state.rows

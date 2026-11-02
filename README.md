@@ -12,7 +12,7 @@ ExeRepair 是用于本地 EXE 容器检查、内容提取、载荷恢复和副�
 | 载荷修复 | 通过载荷流程输入校验的 EXE | 复用校验清单；无清单时隔离捕获并恢复载荷 | 含 `.repair` 节的 EXE 及差异、验证、回滚文件 |
 | Enigma 静态恢复 | 已确认元数据 RVA 的 Enigma PE | 解析配置、恢复加密节、搜索 section salt、提取 EVB | `sections` 目录和 EVB 相对文件；不启动目标程序 |
 | 原生调用修复 | 通过原生调用流程输入校验的 EXE | 静态生成带字节保护检查的跳板并重新封装引擎 | 含 `.repair` 和 `.epack` 节的 EXE 及事务文件 |
-| 光盘与安装目录兼容 | 通过精确配置校验的 PE32 | 保留打包节，生成受保护回调及可选 Unicode 目录查询 | 含 `.repair` 和 `.rstate` 节的 EXE 及事务文件 |
+| 光盘与安装目录兼容 | 精确配置或支持的 PE32 结构候选 | 保留打包节，通过配置或临时运行验证检查点 | 含 `.repair` 和 `.rstate` 节的 EXE 及事务文件 |
 | 桌面操作 | 拖入或选择一个 EXE | 自动选择提取或修复流程，显示状态与日志 | 与相应应用服务一致的结果 |
 | 补丁复核 | 原始副本、生成副本、差异 JSON | 重放补丁并逐字节比较 | 文件摘要与重放结果 |
 
@@ -42,7 +42,7 @@ python -m pip install -e ".[dev,verification]"
 | Windows | 桌面交互、原生 DLL、运行时捕获 | 完整产品流程 |
 | Tkinter | 桌面控件 | 使用 GUI；由 Python 环境提供 |
 | `tkinterdnd2` | 文件拖放 | 基础安装依赖；不可导入时视图退回普通 Tk |
-| Frida、psutil | 隔离子进程的捕获与清理 | 首次载荷恢复；需要 64 位 Python |
+| Frida、psutil | 临时进程捕获与清理 | 首次载荷恢复或通用光盘结构的运行时定位 |
 | NumPy、Numba | CPU 筛选与校验 | 首次载荷恢复 |
 | OpenCL 驱动 | GPU 结构筛选 | 选择 GPU 后端；驱动不由 pip 安装 |
 | Enigma 静态恢复的 NumPy、Numba | CPU section salt 候选筛选；缺少时退回有界纯 Python 校验 | 未知 section salt 的 Enigma 恢复 |
@@ -52,7 +52,9 @@ python -m pip install -e ".[dev,verification]"
 
 只读检查、容器提取和已恢复清单重放不加载运行时捕获依赖。 Enigma 的元数据检查不加载可选依赖；未知 section salt 的恢复会按 `auto`、CPU、纯 Python 顺序选择筛选器。
 原生调用修复不使用载荷清单、Frida 或搜索后端。
-光盘检查兼容流程也不使用压缩器；构建不启动目标程序。
+光盘检查构建器不使用压缩器。内置或外部精确配置不需启动目标；通用结构候选
+在点击“修复副本”时需要 Windows 和 Frida，会运行临时 EXE 副本并复制少量相邻数据文件。
+临时目录不是安全沙箱，仅处理可信且获得授权的文件。
 输入边界及运行时 API 形式要求见 [光盘检查流程](docs/DISC_CHECK_REPAIR.md)。
 第三方 aPLib 发行包保留完整内容，许可见 [原生依赖说明](exerepair/adapters/native/README.md)。
 
@@ -99,6 +101,9 @@ python -m exerepair --run TARGET.exe --launch-arg /windowed
 # 自动识别并处理；默认生成 TARGET_crack.exe
 python -m exerepair TARGET.exe
 
+# 使用自行验证的通用光盘检查配置，不修改工具的内置配置表
+python -m exerepair TARGET.exe --disc-profile .\local-profile.json -o .\output\OUTPUT.exe
+
 # 指定独立输出和恢复缓存
 python -m exerepair TARGET.exe -o .\output\OUTPUT.exe --work-dir .\cache
 
@@ -137,6 +142,7 @@ python -m exerepair --help
 | `-o` / `--output` | 输入名加 `_crack` | 容器或修复输出 EXE 路径 |
 | `--gui` | 关闭 | 进入 GUI；可携带初始输入文件 |
 | `--force` | 关闭 | 仅修复事务使用，允许替换不同的已存在产物 |
+| `--disc-profile` | 无 | 显式加载外部光盘检查 JSON；必须与目标完整摘要和长度匹配 |
 | `--recovery-manifest` | 自动检查当前工作目录中的缓存 | 载荷修复清单；原生调用配置拒绝此选项 |
 | `--enigma` | 关闭 | 进入 Enigma 配置/节/EVB 静态恢复流程；与 `--run`、`--gui`、`--recovery-manifest` 互斥 |
 | `--enigma-metadata-rva` | 无 | Enigma 元数据 RVA；`--enigma` 检查或恢复时使用，恢复必填 |
@@ -152,14 +158,23 @@ Enigma 流程使用 `--backend auto|cpu|opencl` 选择 section salt 筛选器。
 
 CLI 成功或只读检查成功返回 `0`；应用层识别、读取、提取或修复失败通常返回 `2`。
 参数解析失败也返回 `2`。GUI 返回值由其主事件循环结束后的入口返回值决定。
+外部光盘配置可随 `--gui` 指定；字段、适用边界与示例见
+[光盘检查流程](docs/DISC_CHECK_REPAIR.md#外部配置)。
 
 ## 桌面流程
 
 1. 拖入 EXE 或点击“选择文件”；加载任务在工作线程中执行。
 2. 容器匹配后显示版本、Overlay、主程序、区块及模式，按钮为“提取”。
-3. 输入校验通过后显示处理方法与检查结果，按钮为“修复副本”。
-4. 点击按钮执行已识别流程；处理时按钮禁用，队列将结果交回 Tk 主线程。
+3. 通用结构先显示“待运行时确认”。如资源不在 EXE 所在目录，可点击
+   “资源目录…”选择对应版本的资源；“恢复默认”清除该选择。
+4. 点击“修复副本”启动临时验证；处理时按钮禁用。
 5. 查看输出位置、失败信息和日志。检查失败时显示原因，不执行后续写入。
+
+默认输出在源 EXE 旁，名为 `原文件名_crack.exe`；选择资源目录后默认输出
+在所选目录。通过 API 显式传入输出路径时，以显式路径为准。原 EXE 不覆盖。
+输出不会自动复制资源文件，运行时仍需使用与该版本匹配的资源、配置及工作目录。
+界面的“副本已生成”只表示文件构建和重放通过，并不保证程序启动。
+若临时副本异常退出，检查该版本的资源和配置；工具不会自动替换原文件。
 
 ## 输出、缓存与回滚
 

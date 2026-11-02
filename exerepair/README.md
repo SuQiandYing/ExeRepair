@@ -9,6 +9,7 @@
 
 - `cli.main()` 先解析参数；无输入或 `--gui` 时延迟进入桌面入口。
 - 有输入时先加载容器；加载失败且文件存在时尝试修复参数匹配。
+  显式指定 `--disc-profile` 时直接进入光盘配置检查，不回退至容器提取。
 - `--inspect` 只打印信息；处理动作分别调用容器或修复应用服务。
 - `WrappedProgram` 保留上一次加载、错误和输出位置，供有状态脚本使用。
 
@@ -47,10 +48,11 @@
 聚合容器服务、修复服务、结果对象和类型化错误，供脚本集成。
 光盘检查流程另外导出不可变 `DiscCheckProfile` 与 `PortableSetupProfile`；
 后者描述可选安装目录调用替换，前者的 `portable_setup` 默认是 `None`。
+`load_disc_profile()` 可加载用户显式提供的通用光盘配置文件。
 处理仍调用同一个
 `RepairService.inspect()` / `repair()`，不需要专用的入口脚本。
 
-公开导出：`ErrorCode`、`EnigmaFormatError`、`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ExtractError`、`LoadError`、`OperationError`、`WrappedProgram`、`ContainerService`、`EnigmaInspection`、`EnigmaRecoveryResult`、`EnigmaService`、`RepairService`、`RecoveryError`、`RepairInspection`、`RepairResult`。
+公开导出：`ErrorCode`、`EnigmaFormatError`、`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ExtractError`、`LoadError`、`OperationError`、`WrappedProgram`、`ContainerService`、`EnigmaInspection`、`EnigmaRecoveryResult`、`EnigmaService`、`RepairService`、`load_disc_profile`、`DiscCheckProfile`、`PortableSetupProfile`、`RecoveryError`、`RepairInspection`、`RepairResult`。
 
 此文件导入/转发：`ExtractionOptions`、`ExtractionProgress`、`ExtractionResult`、`InspectionReport`、`PatchFailure`、`PatchInfo`、`ContainerService`、`ErrorCode`、`ExtractError`、`LoadError`、`OperationError`、`WrappedProgram`、`RepairService`、`RecoveryError`、`RepairInspection`、`RepairResult`。
 

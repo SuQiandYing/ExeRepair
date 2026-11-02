@@ -21,6 +21,7 @@ from .domain.errors import (
 )
 from .program import WrappedProgram
 from .application.recovery import RepairService
+from .application.disc_profiles import load_disc_profile
 from .domain.recovery import (
     DiscCheckProfile,
     NativeCallProfile,
@@ -49,6 +50,7 @@ __all__ = [
     "EnigmaRecoveryResult",
     "EnigmaService",
     "RepairService",
+    "load_disc_profile",
     "DiscCheckProfile",
     "NativeCallProfile",
     "PortableSetupProfile",

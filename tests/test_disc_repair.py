@@ -191,6 +191,30 @@ def test_disc_profile_is_public_and_identity_not_filename_controls_inspection(tm
         RepairService().inspect(source)
 
 
+def test_runtime_note_reaches_cli_gui_and_verification(tmp_path, monkeypatch, capsys):
+    from exerepair import cli
+    from exerepair.ui.viewmodel import ConsoleController
+
+    original, profile = fixture()
+    profile = replace(profile, runtime_note="Check compatible external resources")
+    monkeypatch.setattr(profiles, "PROFILES", (profile,))
+    source = tmp_path / "input.exe"
+    source.write_bytes(original)
+    assert cli.main(["--inspect", str(source)]) == 0
+    assert profile.runtime_note in capsys.readouterr().out
+
+    controller = ConsoleController()
+    controller.begin_load(source)
+    state = controller.load(source)
+    assert profile.runtime_note in state.status_detail
+    assert dict(row.values for row in state.rows)["运行提示"] == profile.runtime_note
+    state, output = controller.act(tmp_path / "output.exe")
+    assert output is not None
+    assert profile.runtime_note in state.status_detail
+    report_path = tmp_path / "output.exe.VERIFICATION.json"
+    assert json.loads(report_path.read_text())["runtime_note"] == profile.runtime_note
+
+
 def test_cli_and_gui_disc_route(tmp_path,monkeypatch,capsys):
     from exerepair import cli
     from exerepair.ui.viewmodel import ConsoleController,WorkflowKind

@@ -26,8 +26,12 @@
 ### 单目标修复
 
 `RepairService.inspect()` 只读匹配身份并解析 PE。
+可通过 `disc_profile` 显式提供外部光盘检查配置；加载器校验格式和字段，
+服务再校验完整输入摘要与长度，不向全局配置表注册。
 `repair()` 区分载荷、原生调用与光盘检查配置：原生和光盘配置拒绝清单；
-光盘配置调用纯字节构建器，不创建压缩器或捕获适配器。
+光盘精确配置调用纯字节构建器；通用候选先通过运行时适配器执行临时副本
+并验证检查点，临时目录不是安全沙箱。两者均不创建压缩器。
+可用 `disc_resource_dir` 指定资源目录及默认输出目录；显式 `output` 优先。
 载荷配置优先重算缓存校验，无缓存才加载可选捕获/搜索依赖。
 构建器返回 `BuiltRepair` 后共用别名检查、覆盖检查、原子发布、重读和原文件校验。
 
@@ -36,7 +40,8 @@
 `ExtractionOptions` 中 `output_exe` 优先于 `output_directory`，两者均空时用默认目录。
 `ExtractionResult.success` 仅在所有有效补丁通过且主程序写入成功时为真。
 `last_error` 优先给出操作级错误，否则格式化失败索引。
-修复输出通过 `RepairResult` 返回 EXE、差异、验证、回滚位置与载荷数量。
+修复输出通过 `RepairResult` 返回 EXE、差异、验证、回滚位置、载荷数量和
+`runtime_note`；后者不是启动成功证明。
 
 缓存清单不信任自报校验标志；相对载荷路径从清单所在目录解释。
 修复文件逐一原子发布，并非多个文件共同提交。构建错误、缓存错误或冲突
@@ -135,8 +140,8 @@ Enigma 导出：`EnigmaInspection`、`EnigmaRecoveryResult`、`EnigmaService`。
 | 方法 / 属性签名 | 功能、结果与边界 |
 | --- | --- |
 | `RepairService.__init__(self, compressor: Callable[[bytes], bytes] &#124; None=None) -> None` | 初始化本类状态与注入依赖；资源分配或默认策略按上述模块说明执行。 |
-| `RepairService.inspect(self, target: str &#124; Path) -> RepairInspection` | 只读解析真实输入并严格匹配构建配置，返回 PE 与配置检查结果。 |
-| `RepairService.repair(self, target: str &#124; Path, output: str &#124; Path &#124; None=None, *, manifest: str &#124; Path &#124; None=None, work_dir: str &#124; Path &#124; None=None, aplib_dll: str &#124; Path &#124; None=None, backend: str='auto', search_start: int=0, search_count: int=1 << 32, overwrite: bool=False, progress: Progress &#124; None=None) -> RepairResult` | 分流静态或载荷策略，保护输入/输出身份，发布并重读全部事务文件。 明确抛出：`RecoveryError`。 |
+| `RepairService.inspect(self, target: str &#124; Path, *, disc_profile: str &#124; Path &#124; None=None) -> RepairInspection` | 只读解析输入，匹配精确配置或返回受支持的结构候选。 |
+| `RepairService.repair(self, target: str &#124; Path, output: str &#124; Path &#124; None=None, *, disc_profile: str &#124; Path &#124; None=None, manifest: str &#124; Path &#124; None=None, work_dir: str &#124; Path &#124; None=None, aplib_dll: str &#124; Path &#124; None=None, backend: str='auto', search_start: int=0, search_count: int=1 << 32, overwrite: bool=False, progress: Progress &#124; None=None) -> RepairResult` | 分流修复策略，保护输入/输出身份，发布并重读全部事务文件。 明确抛出：`RecoveryError`。 |
 
 | 函数签名 | 功能、结果与边界 |
 | --- | --- |
@@ -146,6 +151,12 @@ Enigma 导出：`EnigmaInspection`、`EnigmaRecoveryResult`、`EnigmaService`。
 | `save_payload_manifest(directory: Path, original: bytes, profile, payloads: tuple[RecoveredPayload, ...]) -> Path` | 先验证载荷，再写相对命名文件和 v2 清单，最后重读清单校验。 |
 | `_aliases(path: Path, source: Path) -> bool` | 检查与源路径一致或 samefile 硬链接关系，供输出保护。 |
 | `rollback_script(baseline_name: str, expected_sha256: str) -> bytes` | 生成可执行 POSIX 回滚文本，校验同目录基线摘要后恢复指定副本。 |
+
+### `disc_profiles.py`
+
+| 函数签名 | 功能、结果与边界 |
+| --- | --- |
+| `load_disc_profile(path: str &#124; Path) -> DiscCheckProfile` | 读取有大小限制的外部 JSON，检查版本、字段、类型和光盘保护条件，不修改全局配置。 |
 
 
 ### `results.py`

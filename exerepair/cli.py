@@ -50,6 +50,11 @@ def _path_options(parser: argparse.ArgumentParser) -> None:
 
 def _recovery_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        "--disc-profile",
+        type=Path,
+        help="显式指定光盘检查 JSON 配置；必须匹配目标完整摘要和长度",
+    )
+    parser.add_argument(
         "--recovery-manifest",
         type=Path,
         help="复用已经校验的载荷清单",
@@ -124,12 +129,21 @@ def _enigma_command(target: Path, args) -> int:
 
 
 def _inspect_or_repair(target: Path, args) -> int:
-    inspection = RepairService().inspect(target)
+    service = RepairService()
+    inspection = (
+        service.inspect(target, disc_profile=args.disc_profile)
+        if args.disc_profile is not None else service.inspect(target)
+    )
     profile = inspection.profile
     print(f"修复配置: {profile.name}")
     print(f"原始 SHA256: {profile.baseline_sha256}")
     if isinstance(profile, DiscCheckProfile):
-        print("修复类型: 光盘检查兼容；不捕获、不搜索密钥、不依赖压缩器")
+        if profile.requires_runtime_discovery:
+            print("修复类型: 待运行时验证的光盘检查候选；将运行临时副本并复制部分相邻数据，临时目录不是安全沙箱")
+        else:
+            print("修复类型: 光盘检查兼容；不捕获、不搜索密钥、不依赖压缩器")
+        if profile.runtime_note:
+            print(f"运行提示: {profile.runtime_note}")
     elif isinstance(profile, NativeCallProfile):
         if profile.requires_runtime_discovery:
             print("修复方法: 已通过结构验证；修复时自动隔离定位原生调用")
@@ -139,10 +153,13 @@ def _inspect_or_repair(target: Path, args) -> int:
         print(f"载荷数量: {len(profile.payloads)}")
 
     if args.inspect:
-        print("样本结构已识别；未启动进程或读取激活信息")
+        print("已完成静态检查；未启动进程或读取激活信息")
         return 0
 
-    result = RepairService().repair(
+    profile_options = (
+        {"disc_profile": args.disc_profile} if args.disc_profile is not None else {}
+    )
+    result = service.repair(
         target,
         args.output,
         manifest=args.recovery_manifest,
@@ -153,6 +170,7 @@ def _inspect_or_repair(target: Path, args) -> int:
         search_count=args.search_count,
         overwrite=args.force,
         progress=lambda message: print(message, flush=True),
+        **profile_options,
     )
     print(f"输出: {result.output_path}")
     print(f"输出 SHA256: {result.output_sha256}")
@@ -167,6 +185,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.enigma:
+        if args.disc_profile is not None:
+            parser.error("--disc-profile 不能与 --enigma 一起使用")
         if args.executable is None:
             parser.error("--enigma 必须提供目标 EXE")
         try:
@@ -179,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--run 必须提供目标 EXE")
         if args.inspect or args.output is not None or args.gui or args.force:
             parser.error("--run 不能与 --inspect、--output、--gui 或 --force 同时使用")
+        if args.disc_profile is not None:
+            parser.error("--disc-profile 不能与 --run 一起使用")
         if args.timeout is not None and not args.wait:
             parser.error("--timeout 必须与 --run --wait 一起使用")
         try:
@@ -216,10 +238,17 @@ def main(argv: list[str] | None = None) -> int:
                 "search_start": args.search_start,
                 "search_count": args.search_count,
                 "overwrite": args.force,
+                **({"disc_profile": args.disc_profile} if args.disc_profile is not None else {}),
             },
         )
 
     target = args.executable
+    if args.disc_profile is not None:
+        try:
+            return _inspect_or_repair(target, args)
+        except (OSError, ValueError, KeyError, TypeError) as failure:
+            print(f"exerepair: {failure}", file=sys.stderr)
+            return 2
     try:
         program = ContainerService().load(target)
     except OperationError as error:

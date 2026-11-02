@@ -53,6 +53,7 @@ class WorkbenchState:
     logs: tuple[str, ...] = ()
     action_label: str = "提取"
     can_act: bool = False
+    can_choose_resource_dir: bool = False
 
     @classmethod
     def empty(cls) -> "WorkbenchState":
@@ -96,12 +97,20 @@ class ConsoleController:
             self._state = WorkbenchState.empty()
             return self._state
 
+    def set_disc_resource_dir(self, path: str | Path | None) -> None:
+        with self._lock:
+            if path is None:
+                self.recovery_options.pop("disc_resource_dir", None)
+            else:
+                self.recovery_options["disc_resource_dir"] = Path(path)
+
     # -- loading -----------------------------------------------------------
 
     def begin_load(self, path: str | Path) -> WorkbenchState:
         with self._lock:
             self._loaded = None
             self._repair = None
+            self.recovery_options.pop("disc_resource_dir", None)
             self._state = replace(
                 WorkbenchState.empty(),
                 phase="loading",
@@ -118,6 +127,8 @@ class ConsoleController:
         with self._lock:
             self._loaded = None
             self._repair = None
+        if self.recovery_options.get("disc_profile") is not None:
+            return self._load_repair(path)
         try:
             loaded = self.service.load(path)
         except OperationError:
@@ -129,55 +140,79 @@ class ConsoleController:
 
     def _load_repair(self, path: Path) -> WorkbenchState:
         try:
-            inspection = self.repair_service.inspect(path)
+            disc_profile = self.recovery_options.get("disc_profile")
+            inspection = (
+                self.repair_service.inspect(path, disc_profile=disc_profile)
+                if disc_profile is not None else self.repair_service.inspect(path)
+            )
         except (OSError, ValueError) as error:
+            if self.recovery_options.get("disc_profile") is not None:
+                return self._fail("外部配置检查失败", str(error))
             try:
                 data = path.read_bytes()
                 decode_enigma_bootstrap(data, PEImage.parse(data))
             except (OSError, ValueError):
-                return self._fail("无法识别文件", "文件不符合容器或已配置 Enigma 目标的格式")
+                return self._fail("无法识别文件", "文件不符合支持的容器、修复配置或 PE32 结构")
             return self._fail("此版本尚无单样本修复配置", str(error))
         profile = inspection.profile
         native = isinstance(profile, NativeCallProfile)
         disc = isinstance(profile, DiscCheckProfile)
-        pending_runtime = native and profile.requires_runtime_discovery
+        pending_native = native and profile.requires_runtime_discovery
+        pending_disc = disc and profile.requires_runtime_discovery
         if disc:
-            site_name, site = "光盘检查", f"模块 RVA {profile.return_rva:#x}"
+            site_name = "光盘检查"
+            site = "运行时自动定位" if pending_disc else f"模块 RVA {profile.return_rva:#x}"
         elif native:
             site_name = "原生调用"
-            site = "运行时自动定位" if pending_runtime else f"RVA {profile.call_rva:#x}"
+            site = "运行时自动定位" if pending_native else f"RVA {profile.call_rva:#x}"
         else:
             site_name, site = "已验证载荷", str(len(profile.payloads))
         rows = (
             Row(("修复配置", profile.name), "ok"),
             Row((site_name, site), "ok"),
             Row(("加载器入口", f"0x{inspection.entry_rva:08X}"), ""),
-            Row(("修复方法", "完整字节保护、单次检查兼容；.repair + .rstate" if disc else
+            Row(("修复方法", "运行时验证、字节保护；.repair + .rstate" if pending_disc else
+                 "完整字节保护、单次检查兼容；.repair + .rstate" if disc else
                  "原生调用保护补丁；.repair + .epack" if native else
                  "新增 .repair；保留原始密文与真实 CRC"), "info"),
             Row(("参考 EXE", "不需要；按当前样本结构定位"), "info"),
             Row(("激活值", "不读取、不搜索、不写入" if native or disc else
                  "仅在恢复进程内存中使用，不写入"), "info"),
         )
+        if disc and profile.runtime_note:
+            rows += (Row(("运行提示", profile.runtime_note), "info"),)
+        status_detail = (
+            "修复会运行临时副本、复制部分相邻数据并可能取消对话框；"
+            "临时目录不是安全沙箱。" if pending_disc else
+            "修复时只在隔离进程中定位一次调用点；不读取激活值。" if pending_native else
+            "静态生成副本；无需 Frida/GPU 或压缩器。" if disc else
+            "静态生成副本；无需 Frida/GPU 或密钥搜索。" if native else
+            "首次需捕获/搜索；后续复用校验缓存。不会修改原始 EXE。"
+        )
+        if disc and profile.runtime_note:
+            status_detail += f"\n{profile.runtime_note}"
         with self._lock:
             self._repair = inspection
             self._state = replace(
                 self._state,
                 phase="ready",
-                tone=StatusTone.SUCCESS,
-                status_title=("通用结构已识别" if pending_runtime else "单样本修复配置已匹配"),
-                status_detail=("修复时只在隔离进程中定位一次调用点；不读取激活值。" if pending_runtime else
-                               "静态生成副本；无需 Frida/GPU 或压缩器。" if disc else
-                               "静态生成副本；无需 Frida/GPU 或密钥搜索。" if native else
-                               "首次需捕获/搜索；后续复用校验缓存。不会修改原始 EXE。"),
+                tone=StatusTone.INFO if pending_disc else StatusTone.SUCCESS,
+                status_title=(
+                    "通用结构待运行时确认" if pending_disc else
+                    "通用结构已识别" if pending_native else "单样本修复配置已匹配"
+                ),
+                status_detail=status_detail,
                 workflow=WorkflowKind.REPAIR,
                 rows=rows,
                 details=(
                     ("目标 SHA-256", profile.baseline_sha256),
                 ),
-                logs=self._state.logs + (self._line(f"配置匹配：{profile.name}"),),
+                logs=self._state.logs + (
+                    self._line(f"{'结构候选' if pending_disc else '配置匹配'}：{profile.name}"),
+                ),
                 action_label="修复副本",
                 can_act=True,
+                can_choose_resource_dir=disc,
             )
             return self._state
 
@@ -211,7 +246,7 @@ class ConsoleController:
             )
             return self._state
 
-    def _fail(self, title: str, detail: str) -> WorkbenchState:
+    def _fail(self, title: str, detail: str, *, can_retry: bool = False) -> WorkbenchState:
         with self._lock:
             self._state = replace(
                 self._state,
@@ -219,8 +254,8 @@ class ConsoleController:
                 tone=StatusTone.ERROR,
                 status_title=title,
                 status_detail=detail,
-                can_act=False,
-                action_label="提取",
+                can_act=can_retry,
+                action_label=self._state.action_label if can_retry else "提取",
                 logs=self._state.logs + (self._line(f"{title}：{detail}"),),
             )
             return self._state
@@ -302,14 +337,19 @@ class ConsoleController:
                 progress=report, **self.recovery_options,
             )
         except (OSError, ValueError, RecoveryError) as error:
-            return self._fail("修复失败", str(error)), None
+            return self._fail("修复失败", str(error), can_retry=True), None
         with self._lock:
+            detail = str(result.output_path)
+            if isinstance(inspection.profile, DiscCheckProfile):
+                note = result.runtime_note or "文件已复验；实际运行效果尚未验证。"
+                detail += f"\n{note}"
             self._state = replace(
                 self._state,
                 phase="ready",
-                tone=StatusTone.SUCCESS,
+                tone=(StatusTone.INFO if isinstance(inspection.profile, DiscCheckProfile)
+                      else StatusTone.SUCCESS),
                 status_title="修复副本已生成",
-                status_detail=str(result.output_path),
+                status_detail=detail,
                 can_act=True,
                 logs=self._state.logs
                 + (self._line(f"已写出并复验：{result.output_path}"),),

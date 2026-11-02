@@ -9,11 +9,13 @@ import tempfile
 from typing import Callable
 
 from ..adapters.aplib import AplibCompressor
+from .disc_profiles import load_disc_profile
 from ..domain.recovery import (
     DiscCheckProfile, NativeCallProfile, RecoveredPayload, RecoveryError, RepairInspection,
     RepairResult,
 )
 from ..formats.enigma import PEImage
+from ..adapters.disc_discovery import discover_disc_runtime
 from ..adapters.native_discovery import discover_native_runtime
 from ..workflows.native_repair import build_native_repair
 from ..workflows.disc_repair import build_disc_repair
@@ -149,10 +151,17 @@ class RepairService:
     def __init__(self, compressor: Callable[[bytes], bytes] | None = None) -> None:
         self._compressor = compressor
 
-    def inspect(self, target: str | Path) -> RepairInspection:
+    def inspect(
+        self, target: str | Path, *, disc_profile: str | Path | None = None,
+    ) -> RepairInspection:
         source = Path(target).expanduser().resolve(strict=True)
         data = source.read_bytes()
-        profile = identify_profile(data)
+        if disc_profile is None:
+            profile = identify_profile(data)
+        else:
+            profile = load_disc_profile(disc_profile)
+            if len(data) != profile.baseline_size or sha256(data) != profile.baseline_sha256:
+                raise RecoveryError("外部光盘配置与目标的完整 SHA-256 或长度不匹配")
         pe = PEImage.parse(data)
         return RepairInspection(source, profile, pe.entry_rva, pe.image_base,
                                 pe.size_of_image, len(pe.sections))
@@ -162,6 +171,8 @@ class RepairService:
         target: str | Path,
         output: str | Path | None = None,
         *,
+        disc_profile: str | Path | None = None,
+        disc_resource_dir: str | Path | None = None,
         manifest: str | Path | None = None,
         work_dir: str | Path | None = None,
         aplib_dll: str | Path | None = None,
@@ -172,11 +183,27 @@ class RepairService:
         progress: Progress | None = None,
     ) -> RepairResult:
         report_progress = progress or (lambda _: None)
-        inspection = self.inspect(target)
+        inspection = (
+            self.inspect(target, disc_profile=disc_profile)
+            if disc_profile is not None else self.inspect(target)
+        )
         source, profile = inspection.source_path, inspection.profile
+        resource_dir = None
+        if disc_resource_dir is not None:
+            if not isinstance(profile, DiscCheckProfile):
+                raise RecoveryError("资源目录选项只适用于光盘检查修复")
+            resource_dir = Path(disc_resource_dir).expanduser().resolve(strict=True)
+            if not resource_dir.is_dir():
+                raise RecoveryError("资源目录不是有效目录")
+        external_profile = (
+            Path(disc_profile).expanduser().resolve(strict=True)
+            if disc_profile is not None else None
+        )
         original = source.read_bytes()
-        destination = (Path(output).expanduser().resolve() if output is not None
-                       else source.with_name(f"{source.stem}_crack{source.suffix}"))
+        destination = (
+            Path(output).expanduser().resolve() if output is not None
+            else (resource_dir or source.parent) / f"{source.stem}_crack{source.suffix}"
+        )
         if _aliases(destination, source):
             raise RecoveryError("输出必须是副本，不能覆盖原始样本或其硬链接")
         directory = (Path(work_dir).expanduser().resolve() if work_dir is not None
@@ -188,7 +215,17 @@ class RepairService:
         if isinstance(profile, DiscCheckProfile):
             if manifest is not None:
                 raise RecoveryError("该光盘检查配置不使用恢复清单，不能指定 --recovery-manifest")
-            report_progress("构建光盘检查兼容副本；不捕获、不搜索密钥、不依赖压缩器")
+            if profile.requires_runtime_discovery:
+                report_progress("正在运行临时 EXE 副本以验证检查点；临时目录不是安全沙箱")
+                runtime_options = (
+                    {"resource_dir": resource_dir} if resource_dir is not None else {}
+                )
+                profile = discover_disc_runtime(
+                    source, original, profile, progress=report_progress, **runtime_options,
+                )
+            report_progress("构建光盘检查兼容副本；不搜索密钥、不依赖压缩器")
+            if profile.runtime_note:
+                report_progress(f"运行提示：{profile.runtime_note}")
             built = build_disc_repair(original, profile)
         elif isinstance(profile, NativeCallProfile):
             if manifest is not None:
@@ -239,6 +276,8 @@ class RepairService:
         verification = dict(built.report, source=str(source), output=str(destination),
                             recovered_manifest=str(manifest_path) if manifest_path else None,
                             original_unchanged=True)
+        if isinstance(profile, DiscCheckProfile) and profile.runtime_note:
+            verification["runtime_note"] = profile.runtime_note
         files = {
             paths["baseline"]: original, paths["diff"]: _json_bytes(built.patch),
             paths["verification"]: _json_bytes(verification),
@@ -248,6 +287,8 @@ class RepairService:
         for path, content in files.items():
             if _aliases(path, source):
                 raise RecoveryError("产物路径指向原始样本")
+            if external_profile is not None and _aliases(path, external_profile):
+                raise RecoveryError("产物路径指向外部光盘配置")
             if path.exists():
                 if not path.is_file():
                     raise RecoveryError(f"产物路径不是文件：{path}")
@@ -263,6 +304,7 @@ class RepairService:
         paths["rollback"].chmod(paths["rollback"].stat().st_mode | 0o111)
         if sha256(source.read_bytes()) != profile.baseline_sha256:
             raise RecoveryError("写出后原始样本身份异常")
-        report_progress(f"完成：{destination}；文件校验和补丁重放通过，尚未自动启动游戏")
+        report_progress(f"完成：{destination}；文件校验和补丁重放通过，尚未验证最终产物运行效果")
         return RepairResult(destination, built.patch["modified_sha256"], paths["diff"],
-                            paths["verification"], paths["rollback"], len(payloads), True)
+                            paths["verification"], paths["rollback"], len(payloads), True,
+                            profile.runtime_note if isinstance(profile, DiscCheckProfile) else "")

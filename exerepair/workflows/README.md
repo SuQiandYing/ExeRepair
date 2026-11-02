@@ -8,7 +8,9 @@
 
 `PROFILES` 管理识别信息与处理参数。`identify_profile()` 比较完整 SHA-256 和长度，
 返回 `RepairProfile`、`NativeCallProfile` 或 `DiscCheckProfile`。
-光盘检查配置仅按精确身份匹配；其他输入保留现有原生结构发现路径。
+其他输入依次尝试受支持的原生结构和光盘检查结构；光盘候选必须在运行时
+绑定当前输入的证据后才能构建。
+外部光盘配置由应用层显式加载并按输入摘要匹配，不写入 `PROFILES`。
 无法建立支持的配置时返回 `RecoveryError`。
 配置中的 RVA、VM 索引、原字节和载荷摘要限定为该身份，不能自动移用到其他输入。
 
@@ -29,6 +31,10 @@
 
 ### 光盘检查兼容
 
+`disc_discovery` 解析 PE32 加载结构；运行时证据绑定器验证模块调用链、返回
+尾声及可选主映像条件跳转和重试关系。它只处理有限指令形态，不按产品名称、
+文件名或邻近版本复用偏移。
+`validate_disc_profile(profile)` 检查保护字节、模块范围和可选计划的约束。
 `disc_helper(profile, code_va, state_va, original_entry_va)` 返回
 `(代码字节, 状态字节, 布局字典)`；保存通用寄存器和标志，以完整模块、
 调用方及尾声保护条件控制单次修改，再还原 API 分派。

@@ -7,6 +7,7 @@ from ..domain.recovery import (
     DiscCheckProfile, NativeCallProfile, PayloadSpec, PortableSetupProfile,
     RecoveryError, RepairProfile,
 )
+from .disc_discovery import discover_disc_candidate
 from .native_discovery import discover_native_static
 
 
@@ -227,7 +228,11 @@ def identify_profile(data: bytes) -> RepairProfile | NativeCallProfile | DiscChe
             return profile
     try:
         return discover_native_static(data)
+    except RecoveryError:
+        pass
+    try:
+        return discover_disc_candidate(data)
     except RecoveryError as error:
         raise RecoveryError(
-            "没有匹配的已验证配置，且未能从样本结构建立通用 Enigma 原生调用候选。"
+            "没有匹配的已验证配置，未能从样本结构建立通用修复配置。"
         ) from error

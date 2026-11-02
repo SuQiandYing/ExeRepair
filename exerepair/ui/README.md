@@ -22,7 +22,10 @@
 
 `load()` 优先调用容器服务；预期加载错误后尝试修复配置。
 能识别引导结构但无严格配置时显示版本未配置；
-文件不符合两类结构时显示无法识别。原生配置显示静态构建，无捕获或搜索。
+文件不符合支持的结构时显示无法识别。通用光盘候选会提示临时运行及资源复制，
+完成后显示运行尚待验证的提示；临时副本异常退出时显示错误。
+光盘工作流可选择或清除独立资源目录；选择后默认在该目录生成输出副本。
+修复失败后可更改资源目录并直接重试，不需要重新加载文件。
 
 `act(output)` 使用已加载对象，返回 `(状态, 输出路径或 None)`；
 `output` 可由集成调用显式提供。进度回调更新状态与日志，
@@ -141,7 +144,7 @@
 | `ConsoleController.load(self, path: str &#124; Path) -> WorkbenchState` | 先尝试容器，否则尝试修复，返回更新后的快照。 |
 | `ConsoleController._load_repair(self, path: Path) -> WorkbenchState` | 匹配修复配置，并区分无配置的有效引导或无法识别输入。 |
 | `ConsoleController._unwrap_state(self, loaded: LoadedProgram) -> WorkbenchState` | 把已加载容器摘要转换为 ready 状态与信息行。 |
-| `ConsoleController._fail(self, title: str, detail: str) -> WorkbenchState` | 设置错误状态、消息与日志，并禁用处理动作。 |
+| `ConsoleController._fail(self, title: str, detail: str, *, can_retry: bool=False) -> WorkbenchState` | 设置错误状态、消息与日志；可按调用方要求保留重试动作。 |
 | `ConsoleController.begin_action(self) -> WorkbenchState` | 进入 busy 状态并禁用重复执行。 |
 | `ConsoleController.act(self, output: str &#124; Path &#124; None=None) -> tuple[WorkbenchState, str &#124; None]` | 根据已加载类型选择提取/修复，返回 (状态, 输出路径或 None)。 |
 | `ConsoleController._act_unwrap(self, loaded: LoadedProgram, output: str &#124; Path &#124; None) -> tuple[WorkbenchState, str &#124; None]` | 使用用户输出或默认名提取，反馈区块进度并更新完成/失败状态。 |

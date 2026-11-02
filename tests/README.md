@@ -19,6 +19,8 @@
 | `test_enigma_recovery.py` | Enigma 算法向量、Enigma 配置/section、salt 搜索、EVB v1/v3、路径保护、服务输出和 CLI 路由 |
 | `test_native_repair.py` | 跳板保护、寄存器/标志、重定位块、PE 约束、服务与 CLI/GUI 分流 |
 | `test_disc_repair.py` | 光盘检查身份/结构、RX/RW 分离、每字节保护、模块重定位、ABI 保持、单次回调与统一事务 |
+| `test_disc_discovery.py` | 通用候选、运行时证据绑定、跳转目标、错误分支、临时资源与逐字节 worker 保护 |
+| `test_disc_profiles.py` | 外部通用配置解析、输入身份校验、CLI 和桌面控制器 |
 | `test_portable_setup.py` | 配置驱动目录查询、补丁重放、每字节保护、Unicode/UTF-16、范围冲突及 worker 超时不写入 |
 | `test_opencl_filter.py` | 合成后端缓冲区复用、输入更新、扩容释放、无效输入 |
 | `test_viewmodel.py` | 状态转换、错误状态和自定义输出 |

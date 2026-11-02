@@ -128,6 +128,10 @@ class DiscCheckProfile:
     # Static process-independent patches for checks that execute in the main
     # image before any late-loaded validation module is materialized.
     static_patch_sites: tuple[tuple[int, bytes, bytes], ...] = ()
+    # Informational only: external resources are not validated by the builder.
+    runtime_note: str = ""
+    # A structural candidate cannot be built until runtime evidence is bound.
+    requires_runtime_discovery: bool = False
     payloads: tuple[PayloadSpec, ...] = field(default=(), init=False)
 
 
@@ -156,3 +160,4 @@ class RepairResult:
     rollback_path: Path
     recovered_payload_count: int
     original_unchanged: bool
+    runtime_note: str = ""

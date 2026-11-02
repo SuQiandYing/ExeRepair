@@ -21,6 +21,9 @@
 该类型及可选 `PortableSetupProfile` 可通过 `exerepair.api` 导入。
 后者集中保存安装目录查询、字符串函数保护和已初始化目录对象的位置；
 `DiscCheckProfile.portable_setup` 默认 `None`，不启用额外目录处理。
+`DiscCheckProfile.runtime_note` 默认空字符串，仅供界面、日志与验证报告提示
+外部资源要求，不参与身份识别、资源校验或机器码生成。
+`requires_runtime_discovery` 为真时只是静态候选，不能直接交给构建器。
 `RecoveredPayload.data` 不进入默认 repr，减少无意输出载荷内容。
 
 模型中的大写属性是兼容接口，读取对应的小写字段，不添加另一套状态。
@@ -329,6 +332,7 @@
 | `rollback_path` | `Path` | `必填` | 回滚脚本位置 |
 | `recovered_payload_count` | `int` | `必填` | 已校验恢复载荷数量 |
 | `original_unchanged` | `bool` | `必填` | 发布前后输入身份校验结果 |
+| `runtime_note` | `str` | `""` | 运行环境及未完成启动验证的提示 |
 
 
 ## 对应验证
