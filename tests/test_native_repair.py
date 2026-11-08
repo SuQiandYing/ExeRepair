@@ -213,3 +213,24 @@ def test_gui_native_inspection_has_correct_workflow_and_method(tmp_path):
     rows = dict(row.values for row in state.rows)
     assert rows["原生调用"] == "RVA 0x183bb"
     assert rows["激活值"] == "不读取、不搜索、不写入"
+
+
+def test_gui_pending_native_profile_is_not_presented_as_a_verified_repair(tmp_path):
+    from exerepair.domain.recovery import RepairInspection
+    from exerepair.ui.viewmodel import ConsoleController, StatusTone
+
+    source = tmp_path / "game.exe"
+    source.write_bytes(make_pe(32))
+    pending = replace(NATIVE_CALL_X86_V1, requires_runtime_discovery=True)
+
+    class Service:
+        def inspect(self, path):
+            return RepairInspection(path, pending, 1, 0x400000, 0x2000, 7)
+
+    controller = ConsoleController(repair_service=Service())
+    controller.begin_load(source)
+    state = controller.load(source)
+    assert state.tone is StatusTone.INFO
+    assert state.status_title == "通用结构待运行时确认"
+    assert "注册窗口" in state.status_detail
+    assert "结构候选" in state.logs[-1]

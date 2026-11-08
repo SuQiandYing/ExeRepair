@@ -357,10 +357,19 @@ def test_complete_unmodified_native_distribution_is_packaged():
         assert b"You may not redistribute aPLib without all of the files." in archive.read(license_paths[0])
 
 
-def _verify_helper(mode):
+def _verify_helper(mode, payload_index=None):
     import unicorn
     from unicorn import x86_const as r
     _original, _profile, payloads = fixture()
+    if payload_index is not None:
+        original_spec = payloads[0].spec
+        payloads = tuple(
+            RecoveredPayload(
+                replace(original_spec, source_rva=0x1000 * (index + 1)),
+                bytes([index + 1]) * original_spec.size,
+            )
+            for index in range(9)
+        )
     code, no_op = helper_and_data(payloads)
     uc = unicorn.Uc(unicorn.UC_ARCH_X86, unicorn.UC_MODE_32)
     address, descriptor, output, stack, stop = (
@@ -369,7 +378,8 @@ def _verify_helper(mode):
     for location in (address, descriptor, output, stack, stop):
         uc.mem_map(location, 4096)
     uc.mem_write(address, code)
-    spec = payloads[0].spec
+    selected = payloads[payload_index or 0]
+    spec = selected.spec
     desc = bytearray(80)
     struct.pack_into("<I", desc, 8, spec.size)
     struct.pack_into("<I", desc, 16, spec.source_rva if mode != "no-match" else 0xDEAD)
@@ -388,7 +398,7 @@ def _verify_helper(mode):
         uc.reg_write(register, value)
     uc.emu_start(address + (no_op if mode == "ret8" else 0), stop, count=1000)
     assert bytes(uc.mem_read(output, spec.size)) == (
-        payloads[0].data if mode == "copy" else b"X" * spec.size
+        selected.data if mode == "copy" else b"X" * spec.size
     )
     for register, value in registers.items():
         expected = value + (12 if mode == "ret8" else 4) if register == r.UC_X86_REG_ESP else value
@@ -407,6 +417,21 @@ def test_native_helper_registers_flags_copy_and_stack(mode):
         f"from tests.test_runtime_repair import _verify_helper; _verify_helper({mode!r})",
     ]
     result = subprocess.run(command, capture_output=True)
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert not result.stderr, result.stderr.decode(errors="replace")
+
+
+@pytest.mark.parametrize("index", [0, 4, 8])
+def test_native_helper_selects_the_correct_payload_in_a_nine_entry_table(index):
+    if importlib.util.find_spec("unicorn") is None:
+        pytest.skip("optional Unicorn verifier not installed")
+    result = subprocess.run(
+        [sys.executable, "-c", (
+            "from tests.test_runtime_repair import _verify_helper; "
+            f"_verify_helper('copy', {index})"
+        )],
+        capture_output=True,
+    )
     assert result.returncode == 0, result.stderr.decode(errors="replace")
     assert not result.stderr, result.stderr.decode(errors="replace")
 

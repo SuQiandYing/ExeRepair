@@ -146,7 +146,7 @@ def _inspect_or_repair(target: Path, args) -> int:
             print(f"运行提示: {profile.runtime_note}")
     elif isinstance(profile, NativeCallProfile):
         if profile.requires_runtime_discovery:
-            print("修复方法: 已通过结构验证；修复时自动隔离定位原生调用")
+            print("修复方法: 已识别结构候选；修复时仍需运行时验证原生调用")
         else:
             print("修复方法: 已定位的原生 executeAPI 调用；不捕获、不搜索密钥")
     else:

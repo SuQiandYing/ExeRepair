@@ -12,6 +12,7 @@ from time import monotonic
 from ..domain.recovery import DiscCheckProfile, RecoveryError
 from ..workflows.disc_discovery import bind_disc_evidence, bind_main_disc_evidence
 from ..workflows.repair import sha256
+from .probe_process import wait_for_probe_exit as _wait_for_probe_exit
 
 
 _RESOURCE_EXTENSIONS = {
@@ -119,29 +120,6 @@ def _dismiss_cancel_dialogs(pid: int) -> None:
         return True
 
     user.EnumWindows(visit, 0)
-
-
-def _wait_for_probe_exit(pid: int) -> None:
-    import ctypes
-    from ctypes import wintypes
-
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-    kernel.OpenProcess.restype = wintypes.HANDLE
-    kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
-    kernel.WaitForSingleObject.restype = wintypes.DWORD
-    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
-    kernel.CloseHandle.restype = wintypes.BOOL
-    handle = kernel.OpenProcess(0x00100000, False, pid)
-    if not handle:
-        if ctypes.get_last_error() == 87:
-            return
-        raise RecoveryError("无法确认临时探测进程是否已退出")
-    try:
-        if kernel.WaitForSingleObject(handle, 5000) != 0:
-            raise RecoveryError("临时探测进程未在时限内退出")
-    finally:
-        kernel.CloseHandle(handle)
 
 
 def discover_disc_runtime(

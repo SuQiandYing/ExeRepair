@@ -184,7 +184,9 @@ class ConsoleController:
         status_detail = (
             "修复会运行临时副本、复制部分相邻数据并可能取消对话框；"
             "临时目录不是安全沙箱。" if pending_disc else
-            "修复时只在隔离进程中定位一次调用点；不读取激活值。" if pending_native else
+            "修复会运行临时副本并复制相邻运行文件；仍需验证调用点。"
+            "若出现注册窗口，请检查原程序授权状态和完整运行环境；"
+            "临时目录不是安全沙箱。" if pending_native else
             "静态生成副本；无需 Frida/GPU 或压缩器。" if disc else
             "静态生成副本；无需 Frida/GPU 或密钥搜索。" if native else
             "首次需捕获/搜索；后续复用校验缓存。不会修改原始 EXE。"
@@ -196,10 +198,10 @@ class ConsoleController:
             self._state = replace(
                 self._state,
                 phase="ready",
-                tone=StatusTone.INFO if pending_disc else StatusTone.SUCCESS,
+                tone=StatusTone.INFO if pending_disc or pending_native else StatusTone.SUCCESS,
                 status_title=(
-                    "通用结构待运行时确认" if pending_disc else
-                    "通用结构已识别" if pending_native else "单样本修复配置已匹配"
+                    "通用结构待运行时确认" if pending_disc or pending_native else
+                    "单样本修复配置已匹配"
                 ),
                 status_detail=status_detail,
                 workflow=WorkflowKind.REPAIR,
@@ -208,7 +210,10 @@ class ConsoleController:
                     ("目标 SHA-256", profile.baseline_sha256),
                 ),
                 logs=self._state.logs + (
-                    self._line(f"{'结构候选' if pending_disc else '配置匹配'}：{profile.name}"),
+                    self._line(
+                        f"{'结构候选' if pending_disc or pending_native else '配置匹配'}："
+                        f"{profile.name}"
+                    ),
                 ),
                 action_label="修复副本",
                 can_act=True,

@@ -15,23 +15,70 @@ from ..workflows.native_discovery import (
     load_native_cache,
     save_native_cache,
 )
+from .probe_process import wait_for_probe_exit as _wait_for_probe_exit
 
 
 def _copy_probe_tree(source: Path, destination: Path) -> Path:
     """Copy the target and its sibling runtime files into an owned directory."""
     destination.mkdir(parents=True, exist_ok=True)
+    resolved_destination = destination.resolve()
+
+    def ignore_probe(directory: str, names: list[str]) -> list[str]:
+        if Path(directory).resolve() != resolved_destination.parent:
+            return []
+        return [
+            name for name in names
+            if (Path(directory) / name).resolve() == resolved_destination
+        ]
+
     for child in source.parent.iterdir():
         if child.name in {"lab_auth", ".exerepair"}:
             continue
         target = destination / child.name
         if child.is_dir():
-            shutil.copytree(child, target, symlinks=True)
+            resolved_child = child.resolve()
+            if resolved_child == resolved_destination:
+                continue
+            ignore = ignore_probe if resolved_destination.is_relative_to(resolved_child) else None
+            shutil.copytree(child, target, symlinks=True, ignore=ignore)
         elif child.is_file():
             shutil.copy2(child, target)
     executable = destination / source.name
     if not executable.is_file():
         raise RecoveryError("隔离运行目录未复制目标 EXE")
     return executable
+
+
+def _registration_dialog_visible(pid: int) -> bool:
+    """Check only window ownership and class; never read registration fields."""
+    import ctypes
+    from ctypes import wintypes
+
+    user = ctypes.WinDLL("user32", use_last_error=True)
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user.EnumWindows.argtypes = (callback_type, wintypes.LPARAM)
+    user.EnumWindows.restype = wintypes.BOOL
+    user.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+    user.IsWindowVisible.argtypes = (wintypes.HWND,)
+    user.IsWindowVisible.restype = wintypes.BOOL
+    user.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+    found = False
+
+    @callback_type
+    def visit(hwnd, _parameter):
+        nonlocal found
+        owner = wintypes.DWORD()
+        user.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user.IsWindowVisible(hwnd):
+            name = ctypes.create_unicode_buffer(128)
+            user.GetClassNameW(hwnd, name, len(name))
+            found = name.value.casefold().startswith("tenigmaprotectorloaderregistrationform")
+            if found:
+                return False
+        return True
+
+    user.EnumWindows(visit, 0)
+    return found
 
 
 def discover_native_runtime(
@@ -80,7 +127,6 @@ def discover_native_runtime(
     device = frida.get_local_device()
     pid = None
     session = None
-    started = time.monotonic()
 
     with tempfile.TemporaryDirectory(
         prefix="native-probe-", dir=str(work_dir)
@@ -126,6 +172,7 @@ def discover_native_runtime(
             script.load()
             script.exports_sync.configure(sections)
             device.resume(pid)
+            started = time.monotonic()
             while evidence is None and time.monotonic() - started < timeout:
                 if errors:
                     break
@@ -139,6 +186,11 @@ def discover_native_runtime(
                 detail = f"；候选数量轨迹={counts[-5:]}" if counts else ""
                 if errors:
                     detail += f"；{errors[0]}"
+                if _registration_dialog_visible(pid):
+                    detail += (
+                        "；临时进程的 Enigma 注册窗口仍在显示，"
+                        "请检查原程序的授权状态及完整运行环境"
+                    )
                 raise RecoveryError(
                     f"运行时未绑定到唯一 executeAPI 原生调用{detail}"
                 )
@@ -149,17 +201,20 @@ def discover_native_runtime(
                 f"隔离运行时定位失败：{type(error).__name__}: {error}"
             ) from error
         finally:
-            _write_events(work_dir / "native-discovery-events.json", events)
-            if pid is not None:
-                try:
-                    device.kill(pid)
-                except Exception:
-                    pass
-            if session is not None:
-                try:
-                    session.detach()
-                except Exception:
-                    pass
+            try:
+                if pid is not None:
+                    try:
+                        device.kill(pid)
+                    except Exception:
+                        pass
+                    _wait_for_probe_exit(pid)
+            finally:
+                if session is not None:
+                    try:
+                        session.detach()
+                    except Exception:
+                        pass
+                _write_events(work_dir / "native-discovery-events.json", events)
 
         assert evidence is not None
         bound = bind_runtime_evidence(static, data, evidence)
